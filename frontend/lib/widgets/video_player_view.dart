@@ -8,6 +8,11 @@ import 'package:media_kit_video/media_kit_video.dart';
 /// Opens [uri] on mount, autoplays, and releases the player on dispose, so
 /// each focus-view opening gets a fresh player and nothing leaks when it
 /// closes.
+///
+/// Controls: mpv's own on-screen controller (osc) is enabled and is the single
+/// control surface. We deliberately do not overlay a Flutter transport bar —
+/// stacking both made the mpv bar and our seekbar overlap, and mpv's bar
+/// swallowed clicks meant for ours.
 class VideoPlayerView extends StatefulWidget {
   const VideoPlayerView({super.key, required this.uri});
 
@@ -24,10 +29,8 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
   @override
   void initState() {
     super.initState();
-    // osc: false — otherwise mpv draws its own on-screen controller (the red
-    // seekbar/play/fullscreen bar) into the video frame, on top of our own
-    // Flutter controls.
-    _player = Player(configuration: const PlayerConfiguration(osc: false));
+    // osc: true — use mpv's built-in on-screen controller as the only controls.
+    _player = Player(configuration: const PlayerConfiguration(osc: true));
     _controller = VideoController(_player);
     _player.open(Media(widget.uri.toString()), play: true);
   }
@@ -40,80 +43,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Video(controller: _controller, fit: BoxFit.contain),
-        // Minimal transport controls, overlaid at the bottom.
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: _TransportControls(player: _player),
-        ),
-      ],
-    );
-  }
-}
-
-/// Play/pause toggle plus a seek bar, rebuilt from the player's streams.
-class _TransportControls extends StatelessWidget {
-  const _TransportControls({required this.player});
-
-  final Player player;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
-        ),
-      ),
-      child: Row(
-        children: [
-          StreamBuilder<bool>(
-            stream: player.stream.playing,
-            initialData: true,
-            builder: (context, snap) => IconButton(
-              tooltip: (snap.data ?? true) ? 'Pause' : 'Play',
-              icon: Icon(
-                (snap.data ?? true)
-                    ? Icons.pause_rounded
-                    : Icons.play_arrow_rounded,
-                color: Colors.white,
-              ),
-              onPressed: () => player.playOrPause(),
-            ),
-          ),
-          Expanded(
-            child: StreamBuilder<Duration>(
-              stream: player.stream.position,
-              initialData: Duration.zero,
-              builder: (context, posSnap) => StreamBuilder<Duration>(
-                stream: player.stream.duration,
-                initialData: Duration.zero,
-                builder: (context, durSnap) {
-                  final pos = posSnap.data ?? Duration.zero;
-                  final dur = durSnap.data ?? Duration.zero;
-                  final maxMs = dur.inMilliseconds;
-                  return Slider(
-                    value: maxMs == 0
-                        ? 0
-                        : pos.inMilliseconds.clamp(0, maxMs).toDouble(),
-                    max: (maxMs == 0 ? 1 : maxMs).toDouble(),
-                    onChanged: (v) =>
-                        player.seek(Duration(milliseconds: v.toInt())),
-                  );
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    return Video(controller: _controller, fit: BoxFit.contain);
   }
 }
