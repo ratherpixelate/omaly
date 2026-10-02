@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import '../config.dart';
 import '../widgets/photo_tile.dart';
 import '../widgets/video_player_view.dart';
+import 'photo_detail_page.dart';
 
 /// Gallery — the default landing page.
 ///
@@ -983,6 +984,9 @@ class _FoldersPageState extends State<FoldersPage> {
   List<Map<String, dynamic>>? _photos;
   Object? _error;
 
+  /// Folder currently opened ('' is the photos root). Null = folder list.
+  String? _openFolder;
+
   @override
   void initState() {
     super.initState();
@@ -1014,6 +1018,132 @@ class _FoldersPageState extends State<FoldersPage> {
     }
   }
 
+  /// Human-readable byte size, e.g. "1.4 GB".
+  static String _formatSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
+  }
+
+  /// Sum of the listed file sizes in a folder.
+  static int _folderBytes(List<Map<String, dynamic>> items) {
+    var total = 0;
+    for (final p in items) {
+      final s = (p['size'] as num?)?.toInt();
+      if (s != null) total += s;
+    }
+    return total;
+  }
+
+  /// A single folder opened: header with back button, name, item count and
+  /// total size, then that folder's photos.
+  Widget _folderView(BuildContext context) {
+    final theme = Theme.of(context);
+    final folder = _openFolder!;
+    final items =
+        (_photos ?? [])
+            .where((p) => (p['folder'] as String? ?? '') == folder)
+            .toList()
+          ..sort((a, b) {
+            final aTs = (a['modified_at'] as num?)?.toDouble() ?? 0;
+            final bTs = (b['modified_at'] as num?)?.toDouble() ?? 0;
+            return bTs.compareTo(aTs);
+          });
+    final label = folder.isEmpty ? '(root)' : folder;
+    final bytes = _folderBytes(items);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+          child: Row(
+            children: [
+              // Back arrow (Android drawable arrow_back_24).
+              IconButton(
+                tooltip: 'Back to folders',
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => setState(() => _openFolder = null),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${items.length} item${items.length == 1 ? '' : 's'}'
+                      '  •  ${_formatSize(bytes)}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? const Center(child: Text('This folder is empty.'))
+              : GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 140,
+                    mainAxisSpacing: 2,
+                    crossAxisSpacing: 2,
+                  ),
+                  scrollCacheExtent: ScrollCacheExtent.pixels(800),
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  itemCount: items.length,
+                  itemBuilder: (context, i) {
+                    final p = items[i];
+                    final isVideo = p['type'] == 'video';
+                    return GestureDetector(
+                      onTap: () {
+                        if (isVideo) return;
+                        PhotoDetailPage.open(
+                          context,
+                          photoId: p['id'] as String,
+                          imageUrl: Uri.parse('$kApiBaseUrl${p['url']}'),
+                        );
+                      },
+                      child: isVideo
+                          ? VideoTile(
+                              photoId: p['id'] as String,
+                              name: p['name'] as String? ?? p['id'] as String,
+                            )
+                          : PhotoTile(
+                              photoId: p['id'] as String,
+                              uri: Uri.parse('$kApiBaseUrl${p['url']}'),
+                              borderRadius: 0,
+                              cacheWidth: 280,
+                            ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget body;
@@ -1026,6 +1156,8 @@ class _FoldersPageState extends State<FoldersPage> {
       );
     } else if (_photos == null) {
       body = const Center(child: CircularProgressIndicator());
+    } else if (_openFolder != null) {
+      body = _folderView(context);
     } else {
       // Group by folder ('' = photos directly in the root).
       final byFolder = <String, List<Map<String, dynamic>>>{};
@@ -1125,35 +1257,41 @@ class _FoldersPageState extends State<FoldersPage> {
                   });
                   final latest = items.first;
                   final label = entry.key.isEmpty ? '(root)' : entry.key;
+                  final bytes = _folderBytes(items);
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: PhotoTile(
-                          photoId: latest['id'] as String,
-                          uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
-                          borderRadius: 24,
-                          // Folder cards are up to 260 logical px wide.
-                          cacheWidth: 520,
+                  return GestureDetector(
+                    onTap: () => setState(() => _openFolder = entry.key),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: PhotoTile(
+                            photoId: latest['id'] as String,
+                            uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
+                            borderRadius: 24,
+                            // Folder cards are up to 260 logical px wide.
+                            cacheWidth: 520,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        '${items.length} item${items.length == 1 ? '' : 's'}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface
-                              .withValues(alpha: 0.6),
+                        const SizedBox(height: 10),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
-                      ),
-                    ],
+                        Text(
+                          '${items.length} item${items.length == 1 ? '' : 's'}'
+                          '  •  ${_formatSize(bytes)}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface
+                                    .withValues(alpha: 0.6),
+                              ),
+                        ),
+                      ],
+                    ),
                   );
                 },
               ),
