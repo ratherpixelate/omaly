@@ -17,19 +17,21 @@ from datetime import datetime
 import numpy as np
 
 TIME_WINDOW_S = 10.0
-SIM_THRESHOLD = 0.93
+SIM_THRESHOLD = 0.93          # both photos have a real EXIF date
+SIM_THRESHOLD_NO_EXIF = 0.97  # either photo lacks one (mtime is unreliable) -> stricter
 
 
 def _timestamp(taken_at, filepath):
+    """Returns (timestamp, is_exif). Falls back to file mtime when EXIF date is missing."""
     if taken_at:
         try:
-            return datetime.fromisoformat(taken_at).timestamp()
+            return datetime.fromisoformat(taken_at).timestamp(), True
         except ValueError:
             pass
     try:
-        return os.stat(filepath).st_mtime  # fallback when EXIF date is missing
+        return os.stat(filepath).st_mtime, False
     except OSError:
-        return None
+        return None, False
 
 
 def group_bursts(rows) -> dict[str, str]:
@@ -39,12 +41,12 @@ def group_bursts(rows) -> dict[str, str]:
     """
     items = []
     for pid, taken_at, fp, blob in rows:
-        ts = _timestamp(taken_at, fp)
+        ts, exact = _timestamp(taken_at, fp)
         if ts is not None:
-            items.append((ts, pid, np.frombuffer(blob, dtype="float32")))
+            items.append((ts, pid, np.frombuffer(blob, dtype="float32"), exact))
     items.sort(key=lambda x: x[0])
 
-    parent = {pid: pid for _, pid, _ in items}
+    parent = {pid: pid for _, pid, _, _ in items}
 
     def find(x):
         while parent[x] != x:
@@ -52,15 +54,16 @@ def group_bursts(rows) -> dict[str, str]:
             x = parent[x]
         return x
 
-    for i, (ti, pi, ei) in enumerate(items):
-        for tj, pj, ej in items[i + 1:]:
+    for i, (ti, pi, ei, xi) in enumerate(items):
+        for tj, pj, ej, xj in items[i + 1:]:
             if tj - ti > TIME_WINDOW_S:
                 break
-            if float(ei @ ej) >= SIM_THRESHOLD:
+            thr = SIM_THRESHOLD if (xi and xj) else SIM_THRESHOLD_NO_EXIF
+            if float(ei @ ej) >= thr:
                 parent[find(pj)] = find(pi)
 
     groups: dict[str, list[str]] = {}
-    for _, pid, _ in items:
+    for _, pid, _, _ in items:
         groups.setdefault(find(pid), []).append(pid)
 
     return {pid: "b_" + min(members)[:8]
