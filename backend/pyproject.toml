@@ -1,0 +1,26 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Chris LJ", email = "102741531+ratherpixelate@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "exifread>=3.5.1",
+    "face-recognition>=1.3.0",
+    "fastapi>=0.142.2",
+    "hdbscan>=0.8.44",
+    "numpy>=2.5.3",
+    "open-clip-torch>=3.3.0",
+    "pillow>=12.3.0",
+    "ultralytics>=8.4.171",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+backend = "backend:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
