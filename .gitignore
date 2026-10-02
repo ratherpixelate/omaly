@@ -14,8 +14,12 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# NOTE: these two are the Python setuptools/venv convention. They are
+# root-anchored (`/lib/`) because an unanchored `lib/` also matches
+# `frontend/lib/` — i.e. the entire Flutter source tree. Virtualenv dirs are
+# ignored separately below (`.venv`, `backend/.venv/`).
+/lib/
+/lib64/
 parts/
 sdist/
 var/
