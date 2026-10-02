@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'pages/pages.dart';
@@ -6,9 +7,7 @@ import 'theme/palette.dart';
 import 'widgets/app_sidebar.dart';
 import 'widgets/sidebar_destination.dart';
 
-/// Matches the `family:` declared under `flutter: fonts:` in pubspec.yaml,
-/// where the Google Sans Flex weights are bundled as assets.
-const String _kFontFamily = 'GoogleSansFlex';
+final String? _kFontFamily = GoogleFonts.googleSansFlex().fontFamily;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

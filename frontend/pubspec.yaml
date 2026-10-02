@@ -35,6 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   http: ^1.6.0
+  google_fonts: ^9.0.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
@@ -59,22 +60,6 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
-
-  # Google Sans Flex is bundled rather than fetched at runtime by the
-  # google_fonts package. Runtime fetching lost its cache on every hot
-  # restart and logged "Unable to load asset: AssetManifest.bin" until the
-  # network came back. Only the weights the UI actually uses are included.
-  fonts:
-    - family: GoogleSansFlex
-      fonts:
-        - asset: assets/fonts/GoogleSansFlex-400.ttf
-          weight: 400
-        - asset: assets/fonts/GoogleSansFlex-500.ttf
-          weight: 500
-        - asset: assets/fonts/GoogleSansFlex-700.ttf
-          weight: 700
-        - asset: assets/fonts/GoogleSansFlex-800.ttf
-          weight: 800
 
   # To add assets to your application, add an assets section, like this:
   # assets:
