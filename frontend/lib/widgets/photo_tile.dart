@@ -15,6 +15,7 @@ class PhotoTile extends StatelessWidget {
     required this.photoId,
     required this.uri,
     this.borderRadius = 12,
+    this.cacheWidth = 480,
   });
 
   final String photoId;
@@ -24,6 +25,10 @@ class PhotoTile extends StatelessWidget {
   /// like a real photo grid during development.
   final Uri? uri;
   final double borderRadius;
+
+  /// Pixel width to decode the image at. Grids pass the tile's rendered width
+  /// so we do not spend CPU/memory decoding far more pixels than are drawn.
+  final int cacheWidth;
 
   /// Stable per-photo colour so a mock tile doesn't jump around between
   /// rebuilds or scroll positions.
@@ -47,7 +52,13 @@ class PhotoTile extends StatelessWidget {
         fit: BoxFit.cover,
         // Decode at roughly grid size instead of full resolution: much less
         // memory and far smoother scrolling with many photos.
-        cacheWidth: 480,
+        //
+        // Pass the tile's rendered width (x device pixel ratio) from the grid
+        // so we are not decoding 480px-wide images for a 140px tile — that
+        // over-decode is the main source of scroll jank with many photos.
+        cacheWidth: cacheWidth,
+        // Cheaper resampling when the decoded image is scaled down to fit.
+        filterQuality: FilterQuality.low,
         gaplessPlayback: true,
         errorBuilder: (context, error, stackTrace) => _broken(context, error),
         loadingBuilder: (context, child, progress) {

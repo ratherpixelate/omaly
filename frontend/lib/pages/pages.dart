@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+// ScrollCacheExtent lives in the rendering layer and is not re-exported by
+// material.dart.
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
@@ -26,6 +29,10 @@ class _GalleryPageState extends State<GalleryPage> {
   /// Extra left inset applied to the prefix icon, on top of Material's own
   /// minimum prefix padding.
   static const double _kSearchIconInset = 20;
+
+  /// Decode width for gallery grid tiles. The grid caps tiles at 140 logical
+  /// px, so 280 covers a 2x display without decoding the full-size photo.
+  static const int _kTileDecodeWidth = 280;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -848,6 +855,12 @@ class _GalleryPageState extends State<GalleryPage> {
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
       ),
+      // Build tiles a bit beyond the viewport so fast scrolling lands on
+      // already-decoded images instead of shimmer placeholders.
+      scrollCacheExtent: ScrollCacheExtent.pixels(800),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       itemCount: ordered.length,
       itemBuilder: (context, i) {
         final r = ordered[i];
@@ -861,7 +874,12 @@ class _GalleryPageState extends State<GalleryPage> {
         };
         return _tile(
           item,
-          PhotoTile(photoId: r['id'] as String, uri: uri, borderRadius: 0),
+          PhotoTile(
+            photoId: r['id'] as String,
+            uri: uri,
+            borderRadius: 0,
+            cacheWidth: _kTileDecodeWidth,
+          ),
           uri: uri,
         );
       },
@@ -917,6 +935,12 @@ class _GalleryPageState extends State<GalleryPage> {
           mainAxisSpacing: 2,
           crossAxisSpacing: 2,
         ),
+        // Build tiles a bit beyond the viewport so fast scrolling lands on
+        // already-decoded images instead of shimmer placeholders.
+        scrollCacheExtent: ScrollCacheExtent.pixels(800),
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         itemCount: photos.length,
         itemBuilder: (context, i) {
           final p = photos[i];
@@ -933,6 +957,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     photoId: p['id'] as String,
                     uri: uri,
                     borderRadius: 0,
+                    cacheWidth: _kTileDecodeWidth,
                   ),
             uri: uri,
           );
@@ -1086,6 +1111,10 @@ class _FoldersPageState extends State<FoldersPage> {
                   crossAxisSpacing: 16,
                 ),
                 itemCount: visibleFolders.length,
+                scrollCacheExtent: ScrollCacheExtent.pixels(600),
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
                 itemBuilder: (context, i) {
                   final entry = visibleFolders[i];
                   final items = entry.value;
@@ -1105,6 +1134,8 @@ class _FoldersPageState extends State<FoldersPage> {
                           photoId: latest['id'] as String,
                           uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
                           borderRadius: 24,
+                          // Folder cards are up to 260 logical px wide.
+                          cacheWidth: 520,
                         ),
                       ),
                       const SizedBox(height: 10),
