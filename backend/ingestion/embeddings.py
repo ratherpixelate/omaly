@@ -1,4 +1,8 @@
-"""CLIP ViT-B-32 (openai) image embeddings: 512-d, float32, L2-normalized."""
+"""CLIP ViT-B-32 (openai) image embeddings: 512-d, float32, L2-normalized.
+
+Model config MUST be "ViT-B-32-quickgelu" + pretrained="openai" on BOTH the image
+(here) and text (backend) side: OpenAI weights need QuickGELU.
+"""
 import numpy as np
 import open_clip
 import torch
@@ -12,7 +16,7 @@ def _load():
     if not _state:
         device = DEVICE
         model, _, preprocess = open_clip.create_model_and_transforms(
-            "ViT-B-32", pretrained="openai")
+            "ViT-B-32-quickgelu", pretrained="openai")
         model.eval().to(device)
         _state.update(model=model, preprocess=preprocess, device=device)
         print(f"CLIP ViT-B-32 loaded on {device}")

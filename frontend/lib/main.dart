@@ -113,7 +113,7 @@ class _HomeShellState extends State<HomeShell> {
                         ),
                         child: IndexedStack(
                           index: _index,
-                          children: const [
+                          children: [
                             GalleryPage(),
                             FoldersPage(),
                             CollectionsPage(),
@@ -152,7 +152,7 @@ class _HomeShellState extends State<HomeShell> {
                   borderRadius: BorderRadius.circular(16),
                   child: IndexedStack(
                     index: _index,
-                    children: const [
+                    children: [
                       GalleryPage(),
                       FoldersPage(),
                       CollectionsPage(),
