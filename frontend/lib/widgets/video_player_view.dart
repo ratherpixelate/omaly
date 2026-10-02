@@ -24,7 +24,10 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
   @override
   void initState() {
     super.initState();
-    _player = Player();
+    // osc: false — otherwise mpv draws its own on-screen controller (the red
+    // seekbar/play/fullscreen bar) into the video frame, on top of our own
+    // Flutter controls.
+    _player = Player(configuration: const PlayerConfiguration(osc: false));
     _controller = VideoController(_player);
     _player.open(Media(widget.uri.toString()), play: true);
   }
