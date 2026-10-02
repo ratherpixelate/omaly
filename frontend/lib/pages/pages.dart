@@ -289,35 +289,55 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// Circular icon button matching the search field's height and fill, tinted
-  /// #DBE2FF with dark glyphs when [active].
+  /// Square icon button matching the search field's height and fill.
+  ///
+  /// Rests as a rounded rectangle (32px corners) and becomes a full circle
+  /// when [active], which is also when it takes the #DBE2FF tint and dark
+  /// glyph. The shape change is animated so the morph reads as one control.
   Widget _roundIconButton({
     required IconData icon,
     required bool active,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: active
-          ? const Color(0xFFDBE2FF)
-          : Theme.of(context).colorScheme.surfaceContainerHighest
-                .withValues(alpha: 0.6),
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: _kSearchHeight,
-          height: _kSearchHeight,
-          child: Icon(
-            icon,
-            size: 32,
-            color: active
-                ? const Color(0xFF1A1C2E)
-                : Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
+    // A square needs radius == half its side to render as a full circle.
+    final restingRadius = BorderRadius.circular(32);
+    final activeRadius = BorderRadius.circular(_kSearchHeight / 2);
+
+    return TweenAnimationBuilder<BorderRadius?>(
+      tween: BorderRadiusTween(
+        begin: restingRadius,
+        end: active ? activeRadius : restingRadius,
       ),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      builder: (context, radius, _) {
+        return Material(
+          color: active
+              ? const Color(0xFFDBE2FF)
+              : Theme.of(context).colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.6),
+          shape: RoundedRectangleBorder(borderRadius: radius ?? restingRadius),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            // customBorder needs a non-null radius; the tween never yields null.
+            customBorder: RoundedRectangleBorder(
+              borderRadius: radius ?? restingRadius,
+            ),
+            onTap: onTap,
+            child: SizedBox(
+              width: _kSearchHeight,
+              height: _kSearchHeight,
+              child: Icon(
+                icon,
+                size: 32,
+                color: active
+                    ? const Color(0xFF1A1C2E)
+                    : Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1236,6 +1256,19 @@ class SettingsPage extends StatelessWidget {
     'About': 'Know more about the application',
   };
 
+  /// Icon per settings row — the Material equivalents of the Android
+  /// drawables each row was specified with (palette_24, fullscreen_24,
+  /// settings_24, backup_24, manage_accounts_24, robot_2_24, info_24).
+  static const Map<String, IconData> _icons = {
+    'Appearance': Icons.palette_outlined,
+    'Media Viewer': Icons.fullscreen_rounded,
+    'General': Icons.settings_outlined,
+    'Backup & restore': Icons.backup_outlined,
+    'Manage Local Models': Icons.manage_accounts_outlined,
+    'Smart Features': Icons.smart_toy_outlined,
+    'About': Icons.info_outline_rounded,
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1261,6 +1294,7 @@ class SettingsPage extends StatelessWidget {
                 itemBuilder: (context, i) => _SettingsCard(
                   label: _items[i],
                   body: _bodies[_items[i]] ?? '',
+                  icon: _icons[_items[i]],
                   radius: BorderRadius.vertical(
                     top: Radius.circular(i == 0 ? 24 : 6),
                     bottom: Radius.circular(i == _items.length - 1 ? 24 : 6),
@@ -1281,11 +1315,15 @@ class _SettingsCard extends StatelessWidget {
   const _SettingsCard({
     required this.label,
     required this.body,
+    this.icon,
     this.radius = BorderRadius.zero,
   });
 
   final String label;
   final String body;
+
+  /// Icon shown inside the leading circle.
+  final IconData? icon;
 
   /// Corner radius — the first card gets a rounder top, the last a rounder
   /// bottom, so the stack reads as one grouped list.
@@ -1307,19 +1345,30 @@ class _SettingsCard extends StatelessWidget {
         splashColor: Colors.white.withValues(alpha: 0.06),
         highlightColor: Colors.white.withValues(alpha: 0.02),
         child: SizedBox(
-          height: 109,
+          height: 125,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
             child: Row(
               children: [
-                // Circle on the left of the title and body.
+                // Circle on the left of the title and body. Light mode uses the
+                // light brand colour, dark mode keeps the near-black one.
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 52,
+                  height: 52,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: isDark
+                        ? const Color(0xFF17181E)
+                        : const Color(0xFFF9F8FE),
                     shape: BoxShape.circle,
                   ),
+                  child: icon == null
+                      ? null
+                      : Icon(
+                          icon,
+                          size: 28,
+                          // Glyph contrast follows the circle it sits on.
+                          color: isDark ? Colors.white70 : textColor,
+                        ),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
@@ -1330,7 +1379,7 @@ class _SettingsCard extends StatelessWidget {
                       Text(
                         label,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
                           color: textColor,
                         ),
@@ -1341,7 +1390,7 @@ class _SettingsCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 14,
                           color: textColor.withValues(alpha: 0.7),
                         ),
                       ),
