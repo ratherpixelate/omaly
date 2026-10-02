@@ -49,8 +49,7 @@ class PhotoTile extends StatelessWidget {
         // memory and far smoother scrolling with many photos.
         cacheWidth: 480,
         gaplessPlayback: true,
-        errorBuilder: (context, error, stackTrace) =>
-            _broken(context, error),
+        errorBuilder: (context, error, stackTrace) => _broken(context, error),
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
           return _shimmer(context);
@@ -68,10 +67,7 @@ class PhotoTile extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              base,
-              Color.lerp(base, Colors.black, 0.35)!,
-            ],
+            colors: [base, Color.lerp(base, Colors.black, 0.35)!],
           ),
         ),
         child: Center(
@@ -128,14 +124,56 @@ class PhotoTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A tile for video files.
+///
+/// [Image.network] cannot decode video, so videos get their own tile: a dark
+/// tile with a play button and the file name, instead of a broken image.
+class VideoTile extends StatelessWidget {
+  const VideoTile({super.key, required this.photoId, required this.name});
+
+  final String photoId;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black87,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const Center(
+            child: Icon(
+              Icons.play_circle_outline_rounded,
+              size: 40,
+              color: Colors.white70,
+            ),
+          ),
+          Positioned(
+            left: 4,
+            right: 4,
+            bottom: 4,
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: Colors.white70),
+            ),
+          ),
+        ],
       ),
     );
   }
