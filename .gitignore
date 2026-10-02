@@ -218,7 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 backend/.venv/
-backend/db/locallens.db
+backend/db/omaly.db
 backend/data/thumbnails/
+backend/data/demo_photos
 frontend/build/
 frontend/.dart_tool/
+.venv/
+__pycache__/
+*.pyc
+yolov8n.pt
+backend/data/
+EOF
