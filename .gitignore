@@ -233,4 +233,4 @@ __pycache__/
 *.pyc
 yolov8n.pt
 backend/data/
-EOF
+EOFbackend/db/*.db
