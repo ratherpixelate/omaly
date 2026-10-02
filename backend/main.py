@@ -1,18 +1,23 @@
 import os
+import urllib.parse
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-app = FastAPI()
+from api import search, best_shot, wrapped, thumbnails
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    search.warmup()
+    yield
+
+
+app = FastAPI(title="Omaly API", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Folder of photos to serve. Override with PHOTOS_DIR=/path/to/dir.
 PHOTOS_DIR = Path(
@@ -30,8 +35,6 @@ app.mount(
 def health():
     return {"status": "ok"}
 
-
-import urllib.parse
 
 _VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 _IMAGE_EXTS = _IMAGE_EXTS | _VIDEO_EXTS
@@ -58,3 +61,7 @@ def list_photos():
             }
         )
     return {"photos": photos}
+
+
+for r in (search.router, best_shot.router, wrapped.router, thumbnails.router):
+    app.include_router(r)
