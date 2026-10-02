@@ -12,11 +12,15 @@ Public API:
         counts  {"p1": photo_count, ...}  (ranked by size, p1 = most photos)
 """
 import numpy as np
-from sklearn.cluster import HDBSCAN
+from collections import Counter
+
+from sklearn.cluster import AgglomerativeClustering
 
 from . import load_rgb
 
-MIN_CLUSTER_SIZE = 3     # a person needs >= 3 face sightings to become a cluster
+MIN_CLUSTER_SIZE = 2     # a person needs >= 2 face sightings to become a cluster
+CLUSTER_DIST = 0.6       # merge faces while avg distance < this. LOWER = more/smaller clusters
+                         # (splits people), HIGHER = fewer/bigger (merges different people)
 MAX_SIDE = 1600          # downscale before detection (bigger = finds smaller faces, slower)
 DET_SIZE = (1024, 1024)  # insightface detector input; default 640 misses small faces
 DET_THRESH = 0.4         # detector confidence (default 0.5); lower = more faces found
@@ -72,18 +76,21 @@ def detect_all(photos):
 
 def assign_clusters(faces) -> dict[str, int]:
     usable = [f for f in faces if not f["small"]]
-    if len(usable) < MIN_CLUSTER_SIZE:
+    if len(usable) < max(2, MIN_CLUSTER_SIZE):
         return {}
-    labels = HDBSCAN(
-        min_cluster_size=MIN_CLUSTER_SIZE,
-        min_samples=1,
-        copy=True,
-        cluster_selection_method="leaf",  # finer splits -> fewer merged people
-    ).fit_predict(np.vstack([np.asarray(f["emb"], dtype="float64") for f in usable]))
+    X = np.vstack([np.asarray(f["emb"], dtype="float64") for f in usable])
+    labels = AgglomerativeClustering(
+        n_clusters=None,
+        metric="euclidean" if face_recognition else "cosine",  # dlib: euclid, ArcFace: cosine
+        linkage="average",  # average linkage: no single-link chaining of different people
+        distance_threshold=CLUSTER_DIST,
+    ).fit_predict(X)
+    sizes = Counter(labels)
+    labels = [l if sizes[l] >= MIN_CLUSTER_SIZE else -1 for l in labels]  # tiny groups -> noise
 
     by_label: dict[int, set] = {}
     for f, lab in zip(usable, labels):
-        if lab >= 0:  # -1 = noise (one-off faces), left unlabeled
+        if lab >= 0:  # -1 = too few sightings, left unlabeled
             by_label.setdefault(lab, set()).add(f["pid"])
     order = sorted(by_label, key=lambda l: -len(by_label[l]))
     names = {lab: f"p{n}" for n, lab in enumerate(order, 1)}
