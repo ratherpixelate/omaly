@@ -8,15 +8,22 @@ import '../widgets/photo_tile.dart';
 /// This is the one thing that takes over the whole window: [open] pushes an
 /// opaque full-screen route, so the sidebar is hidden behind it. Push with
 /// `Navigator.pop` to come back to the sidebar.
-///
-/// Stub for now — no layout beyond the photo itself.
 class PhotoDetailPage extends StatelessWidget {
-  const PhotoDetailPage({super.key, required this.photoId, this.api});
+  const PhotoDetailPage({
+    super.key,
+    required this.photoId,
+    this.api,
+    this.imageUrl,
+  });
 
   final String photoId;
 
   /// Optional, so the page stays usable before the client is wired in.
   final ApiClient? api;
+
+  /// Full-resolution image URL. Preferred over [api]'s thumbnail when set,
+  /// so the viewer shows the real photo fitted to the screen.
+  final Uri? imageUrl;
 
   /// Open [photoId] full-screen, hiding the sidebar.
   ///
@@ -30,6 +37,7 @@ class PhotoDetailPage extends StatelessWidget {
     BuildContext context, {
     required String photoId,
     ApiClient? api,
+    Uri? imageUrl,
   }) {
     return Navigator.of(context).push(
       PageRouteBuilder<void>(
@@ -37,7 +45,7 @@ class PhotoDetailPage extends StatelessWidget {
         transitionDuration: const Duration(milliseconds: 180),
         reverseTransitionDuration: const Duration(milliseconds: 150),
         pageBuilder: (_, _, _) =>
-            PhotoDetailPage(photoId: photoId, api: api),
+            PhotoDetailPage(photoId: photoId, api: api, imageUrl: imageUrl),
         transitionsBuilder: (_, animation, _, child) =>
             FadeTransition(opacity: animation, child: child),
       ),
@@ -46,21 +54,27 @@ class PhotoDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uri = api?.thumbnailUri(photoId);
+    final uri = imageUrl ?? api?.thumbnailUri(photoId);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: PhotoTile(
-                photoId: photoId,
-                uri: uri,
-                borderRadius: 0,
-              ),
+          // Photo fitted to the screen, with pinch-zoom / pan for free.
+          InteractiveViewer(
+            child: Center(
+              child: uri == null
+                  ? PhotoTile(photoId: photoId, uri: null, borderRadius: 0)
+                  : Image.network(
+                      uri.toString(),
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => PhotoTile(
+                        photoId: photoId,
+                        uri: uri,
+                        borderRadius: 0,
+                      ),
+                    ),
             ),
           ),
           // Escape is the desktop equivalent of a back arrow, so the photo can
@@ -70,7 +84,7 @@ class PhotoDetailPage extends StatelessWidget {
             left: 12,
             child: IconButton(
               tooltip: 'Close (Esc)',
-              icon: const Icon(Icons.close_rounded),
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
           ),
