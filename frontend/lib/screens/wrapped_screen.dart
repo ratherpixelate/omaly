@@ -29,14 +29,14 @@ class _WrappedScreenState extends State<WrappedScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load([int? year]) async {
     setState(() {
       _phase = _Phase.loading;
       _errorMessage = null;
       _detail = null;
     });
     try {
-      final summary = await widget.api.wrapped();
+      final summary = await widget.api.wrapped(year);
       if (!mounted) return;
       setState(() {
         _summary = summary;
@@ -86,6 +86,7 @@ class _WrappedScreenState extends State<WrappedScreen> {
         return WrappedSlideshow(
           summary: _summary!,
           api: widget.api,
+          onYearChanged: (year) => _load(year),
           onFinished: () => Navigator.of(context).pop(),
         );
     }

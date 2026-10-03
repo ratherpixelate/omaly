@@ -25,14 +25,20 @@ def _format_person_name(cluster_id: str, label: str | None) -> str:
 
 def _compute_wrapped_data(c, year: int | None = None) -> dict:
     """Query real database tables to build wrapped aggregations and statistics."""
-    # 1. Determine target year
+    # 1. Determine target year and available years
+    available_years = [int(r[0]) for r in c.execute(
+        "SELECT DISTINCT SUBSTR(taken_at, 1, 4) FROM photos "
+        "WHERE taken_at IS NOT NULL AND SUBSTR(taken_at, 1, 4) GLOB '[0-9][0-9][0-9][0-9]' "
+        "ORDER BY SUBSTR(taken_at, 1, 4) DESC"
+    ).fetchall()]
+
     if year is None:
         yr_row = c.execute(
             "SELECT SUBSTR(taken_at, 1, 4) AS yr, COUNT(*) as cnt "
             "FROM photos WHERE taken_at IS NOT NULL GROUP BY yr "
             "ORDER BY cnt DESC LIMIT 1"
         ).fetchone()
-        year = int(yr_row[0]) if yr_row and yr_row[0] else datetime.now().year
+        year = int(yr_row[0]) if yr_row and yr_row[0] else (available_years[0] if available_years else datetime.now().year)
 
     year_prefix = f"{year}%"
 
@@ -151,7 +157,32 @@ def _compute_wrapped_data(c, year: int | None = None) -> dict:
             "count": int(month_row[1]),
         }
 
-    # - most visited location
+    # - most active time of day (calculated from real timestamps)
+    hours = [int(r[0][11:13]) for r in c.execute(
+        "SELECT taken_at FROM photos WHERE taken_at LIKE ? AND LENGTH(taken_at) >= 13",
+        (year_prefix,)
+    ).fetchall()]
+    most_active_time = None
+    if hours:
+        slots = {
+            "Morning (6 AM – 12 PM)": sum(1 for h in hours if 6 <= h < 12),
+            "Afternoon (12 PM – 5 PM)": sum(1 for h in hours if 12 <= h < 17),
+            "Evening (5 PM – 9 PM)": sum(1 for h in hours if 17 <= h < 21),
+            "Late Night (9 PM – 2 AM)": sum(1 for h in hours if h >= 21 or h < 2),
+            "Early Hours (2 AM – 6 AM)": sum(1 for h in hours if 2 <= h < 6),
+        }
+        best_slot, best_count = max(slots.items(), key=lambda x: x[1])
+        if best_count > 0:
+            most_active_time = f"{best_slot} ({best_count} photos)"
+
+    # - burst groups in this year
+    burst_groups = [r[0] for r in c.execute(
+        "SELECT DISTINCT burst_group_id FROM photos "
+        "WHERE burst_group_id IS NOT NULL AND taken_at LIKE ? ORDER BY burst_group_id",
+        (year_prefix,)
+    ).fetchall()]
+
+    # - most visited location (only if real GPS data exists)
     most_visited_location = top_locations[0] if top_locations else None
 
     # - most photos with a person
@@ -163,6 +194,8 @@ def _compute_wrapped_data(c, year: int | None = None) -> dict:
         "most_visited_location": most_visited_location,
         "most_photos_with_a_person": most_photos_person,
         "busiest_month": busiest_month,
+        "most_active_time": most_active_time,
+        "burst_groups_count": len(burst_groups),
     }
 
     # 6. Pets detected
@@ -172,14 +205,9 @@ def _compute_wrapped_data(c, year: int | None = None) -> dict:
     ).fetchone()
     pets_detected = bool(pet_row)
 
-    # 7. Burst groups
-    burst_groups = [r[0] for r in c.execute(
-        "SELECT DISTINCT burst_group_id FROM photos "
-        "WHERE burst_group_id IS NOT NULL ORDER BY burst_group_id"
-    ).fetchall()]
-
     return {
         "year": year,
+        "available_years": available_years,
         "photos_in_year": photos_in_year,
         "photos_taken_in_year": photos_in_year,
         "total_photos": total_photos,
@@ -231,6 +259,7 @@ def wrapped(year: int | None = None):
 
     return {
         "year": data["year"],
+        "available_years": data.get("available_years", [data["year"]]),
         "total_photos": data["total_photos"],
         "photos_in_year": data["photos_in_year"],
         "photos_taken_in_year": data["photos_taken_in_year"],

@@ -23,25 +23,70 @@ class WrappedSlide10 extends StatelessWidget {
             ? summary.totalPhotos
             : (summary.photosInYear.isNotEmpty ? summary.photosInYear.length : 0));
 
-    final mostDay = stats?.mostPhotosTakenInADay != null
-        ? '${stats!.mostPhotosTakenInADay!.formattedDate} (${stats.mostPhotosTakenInADay!.photoCount} photos)'
-        : 'No single peak day recorded';
+    final statItems = <Widget>[
+      _StatRow(label: 'Total photos taken:', value: '$photosCount'),
+    ];
 
-    final mostLoc = stats?.mostVisitedLocation != null
-        ? stats!.mostVisitedLocation!.name
-        : (summary.topLocations.isNotEmpty
-            ? summary.topLocations.first.name
-            : 'Private / Offline (No GPS)');
+    if (stats?.mostPhotosTakenInADay != null) {
+      final day = stats!.mostPhotosTakenInADay!;
+      statItems.add(
+        _StatRow(
+          label: 'Most photos taken in a day:',
+          value: '${day.formattedDate} (${day.photoCount} photos)',
+        ),
+      );
+    }
 
-    final mostPerson = stats?.mostPhotosWithAPerson != null
-        ? '${stats!.mostPhotosWithAPerson!.label} (${stats.mostPhotosWithAPerson!.photoCount} photos)'
-        : (summary.topPeople.isNotEmpty
-            ? '${summary.topPeople.first.label} (${summary.topPeople.first.photoCount} photos)'
-            : 'None identified');
+    if (stats?.busiestMonth != null) {
+      final m = stats!.busiestMonth!;
+      statItems.add(
+        _StatRow(
+          label: 'Your busiest month:',
+          value: '${m.formattedMonth} (${m.photoCount} photos)',
+        ),
+      );
+    }
 
-    final busiestM = stats?.busiestMonth != null
-        ? '${stats!.busiestMonth!.formattedMonth} (${stats.busiestMonth!.photoCount} photos)'
-        : 'N/A';
+    if (stats?.mostActiveTime != null) {
+      statItems.add(
+        _StatRow(
+          label: 'Most active time of day:',
+          value: stats!.mostActiveTime!,
+        ),
+      );
+    }
+
+    final topPerson = stats?.mostPhotosWithAPerson ??
+        (summary.topPeople.isNotEmpty ? summary.topPeople.first : null);
+    if (topPerson != null && topPerson.photoCount > 0) {
+      statItems.add(
+        _StatRow(
+          label: 'Most photos taken with:',
+          value: '${topPerson.label} (${topPerson.photoCount} photos)',
+        ),
+      );
+    }
+
+    final topLoc = stats?.mostVisitedLocation ??
+        (summary.topLocations.isNotEmpty ? summary.topLocations.first : null);
+    if (topLoc != null) {
+      statItems.add(
+        _StatRow(
+          label: 'Most photos taken at a location:',
+          value: topLoc.name,
+        ),
+      );
+    }
+
+    final burstCount = stats?.burstGroupsCount;
+    if (burstCount != null && burstCount > 0) {
+      statItems.add(
+        _StatRow(
+          label: 'Burst moments captured:',
+          value: '$burstCount burst ${burstCount == 1 ? "group" : "groups"}',
+        ),
+      );
+    }
 
     return GestureDetector(
       onTap: onNext,
@@ -49,10 +94,10 @@ class WrappedSlide10 extends StatelessWidget {
         color: const Color(0xFF121318),
         child: SafeArea(
           child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 800),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 800),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -64,16 +109,11 @@ class WrappedSlide10 extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 40),
-                    _StatRow(label: 'Total photos taken:', value: '$photosCount'),
-                    const SizedBox(height: 28),
-                    _StatRow(label: 'Most photos taken in a day:', value: mostDay),
-                    const SizedBox(height: 28),
-                    _StatRow(label: 'Most photos taken at a location:', value: mostLoc),
-                    const SizedBox(height: 28),
-                    _StatRow(label: 'Most photos taken with a person:', value: mostPerson),
-                    const SizedBox(height: 28),
-                    _StatRow(label: 'Your busiest month:', value: busiestM),
+                    const SizedBox(height: 36),
+                    for (var i = 0; i < statItems.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 24),
+                      statItems[i],
+                    ],
                   ],
                 ),
               ),

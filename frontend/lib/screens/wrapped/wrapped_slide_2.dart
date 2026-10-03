@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
 class WrappedSlide2 extends StatelessWidget {
-  const WrappedSlide2({super.key, required this.onNext});
+  const WrappedSlide2({
+    super.key,
+    required this.onNext,
+    this.year,
+  });
 
   final VoidCallback onNext;
+  final int? year;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +35,7 @@ class WrappedSlide2 extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Omaly Wrapped',
+                  year != null ? 'Omaly Wrapped $year' : 'Omaly Wrapped',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.displayLarge?.copyWith(
                     color: Colors.white,

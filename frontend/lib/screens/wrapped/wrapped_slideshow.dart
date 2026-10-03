@@ -19,11 +19,13 @@ class WrappedSlideshow extends StatefulWidget {
     required this.summary,
     required this.api,
     required this.onFinished,
+    this.onYearChanged,
   });
 
   final WrappedSummary summary;
   final ApiClient api;
   final VoidCallback onFinished;
+  final ValueChanged<int>? onYearChanged;
 
   @override
   State<WrappedSlideshow> createState() => _WrappedSlideshowState();
@@ -97,12 +99,17 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
                 WrappedSlide1(
                   onNext: _nextPage,
                   photoIds: widget.summary.photosInYear,
+                  year: widget.summary.year,
                 ),
-                WrappedSlide2(onNext: _nextPage),
+                WrappedSlide2(
+                  onNext: _nextPage,
+                  year: widget.summary.year,
+                ),
                 WrappedSlide3(onNext: _nextPage),
                 WrappedSlide4(
                   onNext: _nextPage,
                   totalPhotos: totalPhotos,
+                  year: widget.summary.year,
                   peakDay: peakDay,
                   peakCount: peakCount,
                 ),
@@ -157,14 +164,65 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
                   ),
                 ),
               ),
-            // Close button top right
+            // Top action buttons: Year switch pill (if multi-year) + Close button
             Positioned(
-              top: 28,
+              top: 24,
               right: 24,
               child: SafeArea(
-                child: IconButton(
-                  icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                  onPressed: widget.onFinished,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.summary.availableYears.length > 1 && widget.onYearChanged != null)
+                      PopupMenuButton<int>(
+                        initialValue: widget.summary.year,
+                        onSelected: widget.onYearChanged,
+                        color: const Color(0xFF1E1F24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: const BorderSide(color: Colors.white24),
+                        ),
+                        itemBuilder: (context) => widget.summary.availableYears.map((yr) {
+                          return PopupMenuItem<int>(
+                            value: yr,
+                            child: Text(
+                              '$yr',
+                              style: TextStyle(
+                                color: yr == widget.summary.year ? const Color(0xFFDCE4F7) : Colors.white70,
+                                fontWeight: yr == widget.summary.year ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E1F24),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${widget.summary.year}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
+                            ],
+                          ),
+                        ),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      onPressed: widget.onFinished,
+                    ),
+                  ],
                 ),
               ),
             ),

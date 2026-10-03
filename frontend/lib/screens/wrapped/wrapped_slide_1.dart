@@ -8,10 +8,12 @@ class WrappedSlide1 extends StatelessWidget {
     super.key,
     required this.onNext,
     this.photoIds = const [],
+    this.year,
   });
 
   final VoidCallback onNext;
   final List<String> photoIds;
+  final int? year;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +85,7 @@ class WrappedSlide1 extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Omaly Wrapped',
+                          year != null ? 'Omaly Wrapped $year' : 'Omaly Wrapped',
                           style: theme.textTheme.displayMedium?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,

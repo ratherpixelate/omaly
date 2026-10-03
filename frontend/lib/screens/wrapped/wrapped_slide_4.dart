@@ -5,18 +5,25 @@ class WrappedSlide4 extends StatelessWidget {
     super.key,
     required this.onNext,
     required this.totalPhotos,
+    this.year,
     this.peakDay,
     this.peakCount,
   });
 
   final VoidCallback onNext;
   final int totalPhotos;
+  final int? year;
   final String? peakDay;
   final int? peakCount;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final currentYear = DateTime.now().year;
+    final yearLabel = (year != null && year != currentYear)
+        ? 'photos in $year'
+        : 'photos this year';
+
     final peakText = (peakDay != null && peakCount != null)
         ? 'You took the most pics on $peakDay ($peakCount photos)'
         : 'Every moment captured, preserved 100% on this device.';
@@ -42,7 +49,7 @@ class WrappedSlide4 extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  'photos this year',
+                  yearLabel,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.displayLarge?.copyWith(
                     color: Colors.white,

@@ -18,6 +18,54 @@ GENERIC_FACE_TERMS = {
     "everyone", "somebody",
 }
 
+COCO_CLASSES = {
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+    "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+    "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+    "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+    "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
+    "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+}
+
+OBJECT_SYNONYMS = {
+    # Phones
+    "phone": "cell phone", "phones": "cell phone", "cellphone": "cell phone",
+    "cellphones": "cell phone", "mobile": "cell phone", "mobiles": "cell phone",
+    "smartphone": "cell phone", "smartphones": "cell phone", "iphone": "cell phone",
+    "android": "cell phone",
+    # Pets & Animals
+    "dog": "dog", "dogs": "dog", "puppy": "dog", "puppies": "dog", "canine": "dog",
+    "cat": "cat", "cats": "cat", "kitty": "cat", "kitties": "cat", "kitten": "cat",
+    "kittens": "cat", "feline": "cat",
+    "bird": "bird", "birds": "bird",
+    "sheep": "sheep", "lamb": "sheep", "lambs": "sheep",
+    "horse": "horse", "horses": "horse",
+    "cow": "cow", "cows": "cow", "cattle": "cow",
+    # Furniture & Household
+    "chair": "chair", "chairs": "chair", "seat": "chair", "seats": "chair", "armchair": "chair",
+    "couch": "couch", "couches": "couch", "sofa": "couch", "sofas": "couch",
+    "table": "dining table", "dining table": "dining table", "desk": "dining table",
+    "bed": "bed", "beds": "bed",
+    "tv": "tv", "tvs": "tv", "television": "tv", "televisions": "tv", "monitor": "tv",
+    "monitors": "tv", "screen": "tv", "screens": "tv", "display": "tv",
+    "laptop": "laptop", "laptops": "laptop", "computer": "laptop", "computers": "laptop", "pc": "laptop",
+    "mouse": "mouse", "mice": "mouse",
+    "keyboard": "keyboard", "keyboards": "keyboard",
+    "bottle": "bottle", "bottles": "bottle", "water bottle": "bottle", "flask": "bottle",
+    "cup": "cup", "cups": "cup", "mug": "cup", "mugs": "cup", "glass": "wine glass",
+    "book": "book", "books": "book", "novel": "book", "textbook": "book",
+    "clock": "clock", "clocks": "clock", "watch": "clock",
+    "plant": "potted plant", "plants": "potted plant", "potted plant": "potted plant", "flowerpot": "potted plant",
+    # Vehicles
+    "car": "car", "cars": "car", "automobile": "car", "automobiles": "car", "vehicle": "car", "vehicles": "car",
+    "bike": "bicycle", "bikes": "bicycle", "bicycle": "bicycle", "bicycles": "bicycle", "cycle": "bicycle",
+    "motorcycle": "motorcycle", "motorcycles": "motorcycle", "motorbike": "motorcycle",
+}
+
 
 def warmup():
     """Load the CLIP model. Safe to call without torch installed: the server
@@ -224,6 +272,74 @@ def search(q: str = Query(..., min_length=1), top_k: int = Query(20, ge=1, le=10
             print(f"[omaly search] Filename search error: {e}")
 
     if matched_filenames:
+        return {"query": q, "results": results[:k]}
+
+    # 2b. Match detected objects (e.g. "bottle", "cat", "dog", "cell phone", "chair", "tv")
+    matched_object_photos = False
+    target_object_tags = set()
+    is_exact_object_query = False
+
+    if q_clean in OBJECT_SYNONYMS:
+        target_object_tags.add(OBJECT_SYNONYMS[q_clean])
+        is_exact_object_query = True
+    elif q_clean in COCO_CLASSES:
+        target_object_tags.add(q_clean)
+        is_exact_object_query = True
+    else:
+        sub_tokens = [
+            t for t in re.split(r"[\s,;&+/]+", q_clean)
+            if t and t not in ("a", "an", "the", "of", "in", "with", "and", "or", "photo", "photos", "picture", "pictures", "image", "images", "pic", "pics")
+        ]
+        for t in sub_tokens:
+            if t in OBJECT_SYNONYMS:
+                target_object_tags.add(OBJECT_SYNONYMS[t])
+            elif t in COCO_CLASSES:
+                target_object_tags.add(t)
+
+    if target_object_tags:
+        try:
+            with db() as c:
+                obj_rows = c.execute(
+                    "SELECT id, filename, burst_group_id, taken_at, latitude, longitude, object_tags FROM photos "
+                    "WHERE object_tags IS NOT NULL AND object_tags != '[]' ORDER BY taken_at DESC, id ASC"
+                ).fetchall()
+
+                for r in obj_rows:
+                    raw_tags = r["object_tags"]
+                    try:
+                        p_tags = set(json.loads(raw_tags or "[]"))
+                    except Exception:
+                        p_tags = set()
+
+                    hit_tags = p_tags & target_object_tags
+                    if not hit_tags:
+                        continue
+
+                    pid = r["id"]
+                    if pid in seen_ids:
+                        continue
+                    seen_ids.add(pid)
+                    matched_object_photos = True
+
+                    gps = r["latitude"] is not None and r["longitude"] is not None
+                    fname = r["filename"]
+                    hit_label = ", ".join(sorted(hit_tags))
+                    results.append({
+                        "id": pid,
+                        "filename": fname,
+                        "url": f"/files/{urllib.parse.quote(fname)}" if fname else None,
+                        "burst_group_id": r["burst_group_id"],
+                        "thumbnail_url": f"/thumbnails/{pid}.jpg",
+                        "taken_at": r["taken_at"] or "1970-01-01T00:00:00",
+                        "location": {"lat": r["latitude"], "lon": r["longitude"]} if gps else None,
+                        "score": 0.95,
+                        "matched_object": hit_label,
+                    })
+        except Exception as e:
+            print(f"[omaly search] Object search error: {e}")
+
+    # If the user searched for an exact object and matches were found, return them with high precision
+    if is_exact_object_query and matched_object_photos:
         return {"query": q, "results": results[:k]}
 
     # 3. Semantic CLIP search for scenes, objects, and visual concepts

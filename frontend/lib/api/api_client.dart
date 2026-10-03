@@ -23,7 +23,7 @@ abstract class ApiClient {
   Future<List<BurstGroup>> getBursts();
 
   /// `GET /wrapped`
-  Future<WrappedSummary> wrapped();
+  Future<WrappedSummary> wrapped([int? year]);
 
   /// `GET /health`
   Future<bool> health();

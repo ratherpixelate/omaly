@@ -59,8 +59,9 @@ class HttpApiClient implements ApiClient {
   }
 
   @override
-  Future<WrappedSummary> wrapped() async {
-    final json = await _get('/wrapped', timeout: _wrappedTimeout, what: 'wrapped');
+  Future<WrappedSummary> wrapped([int? year]) async {
+    final path = year != null ? '/wrapped?year=$year' : '/wrapped';
+    final json = await _get(path, timeout: _wrappedTimeout, what: 'wrapped');
     return _decode(WrappedSummary.fromJson, json, 'wrapped');
   }
 

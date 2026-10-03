@@ -65,4 +65,24 @@ def extract_exif(path):
             pass
         if taken and lat is not None:
             break
+
+    if not taken:
+        import re
+        from pathlib import Path
+        p = Path(path)
+        # 1. WhatsApp format: YYYY-MM-DD at HH.MM.SS
+        m = re.search(r"(\d{4}-\d{2}-\d{2})\s+at\s+(\d{2})\.(\d{2})\.(\d{2})", p.name)
+        if m:
+            taken = f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}"
+        else:
+            # 2. ISO/compact date in filename: YYYY-MM-DD or YYYYMMDD
+            m2 = re.search(r"(\d{4})[-_]?(\d{2})[-_]?(\d{2})", p.name)
+            if m2 and 1990 <= int(m2.group(1)) <= 2030 and 1 <= int(m2.group(2)) <= 12 and 1 <= int(m2.group(3)) <= 31:
+                taken = f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)}T12:00:00"
+            elif p.exists():
+                try:
+                    taken = datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    pass
+
     return taken, lat, lon

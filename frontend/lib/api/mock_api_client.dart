@@ -178,7 +178,7 @@ class MockApiClient implements ApiClient {
   }
 
   @override
-  Future<WrappedSummary> wrapped() async {
+  Future<WrappedSummary> wrapped([int? year]) async {
     await Future<void>.delayed(_latency);
     return WrappedSummary.fromJson(
       jsonDecode(_wrappedJson) as Map<String, dynamic>,

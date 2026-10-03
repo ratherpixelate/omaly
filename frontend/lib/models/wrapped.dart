@@ -95,6 +95,8 @@ class WrappedStatistics {
     this.mostVisitedLocation,
     this.mostPhotosWithAPerson,
     this.busiestMonth,
+    this.mostActiveTime,
+    this.burstGroupsCount,
   });
 
   final int totalPhotos;
@@ -102,6 +104,8 @@ class WrappedStatistics {
   final LocationStat? mostVisitedLocation;
   final PersonStat? mostPhotosWithAPerson;
   final WrappedMonthStat? busiestMonth;
+  final String? mostActiveTime;
+  final int? burstGroupsCount;
 
   factory WrappedStatistics.fromJson(Map<String, dynamic> json) {
     final dayJson = json['most_photos_taken_in_a_day'];
@@ -115,6 +119,8 @@ class WrappedStatistics {
       mostVisitedLocation: locJson == null ? null : LocationStat.fromJson(locJson as Map<String, dynamic>),
       mostPhotosWithAPerson: personJson == null ? null : PersonStat.fromJson(personJson as Map<String, dynamic>),
       busiestMonth: monthJson == null ? null : WrappedMonthStat.fromJson(monthJson as Map<String, dynamic>),
+      mostActiveTime: json['most_active_time'] as String?,
+      burstGroupsCount: (json['burst_groups_count'] as num?)?.toInt(),
     );
   }
 }
@@ -123,6 +129,7 @@ class WrappedSummary {
   const WrappedSummary({
     required this.generatedAt,
     this.year = 2026,
+    this.availableYears = const [],
     this.totalPhotos = 0,
     this.photosInYear = const [],
     this.photosTakenInYear = const [],
@@ -136,6 +143,7 @@ class WrappedSummary {
 
   final DateTime generatedAt;
   final int year;
+  final List<int> availableYears;
   final int totalPhotos;
   final List<String> photosInYear;
   final List<String> photosTakenInYear;
@@ -149,10 +157,14 @@ class WrappedSummary {
   factory WrappedSummary.fromJson(Map<String, dynamic> json) {
     final statsJson = json['statistics'];
     final photosList = json['photos_in_year'] ?? json['photos_taken_in_year'];
+    final yearsList = json['available_years'] as List<dynamic>?;
 
     return WrappedSummary(
       generatedAt: DateTime.parse(json['generated_at'] as String),
       year: (json['year'] as num?)?.toInt() ?? 2026,
+      availableYears: yearsList != null
+          ? yearsList.map((y) => (y as num).toInt()).toList()
+          : [(json['year'] as num?)?.toInt() ?? 2026],
       totalPhotos: (json['total_photos'] as num?)?.toInt() ?? 0,
       photosInYear: photosList != null
           ? (photosList as List<dynamic>).map((s) => s.toString()).toList()
