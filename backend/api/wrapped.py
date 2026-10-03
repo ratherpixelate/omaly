@@ -19,23 +19,68 @@ OLLAMA_MODEL = os.getenv("OMALY_OLLAMA_MODEL", "phi3:mini")
 OLLAMA_TIMEOUT_S = 3.5
 
 
+_cached_narrative = None
+
+
 def warmup():
-    """Background task to pre-load Ollama model so /wrapped responds quickly."""
+    """Background task to pre-load Ollama model and pre-generate the narrative."""
+    global _cached_narrative
     try:
+        with db() as c:
+            total = c.execute("SELECT COUNT(*) FROM photos").fetchone()[0]
+            raw_people = c.execute(
+                "SELECT cluster_id, label, photo_count FROM face_clusters "
+                "WHERE photo_count >= 2 ORDER BY photo_count DESC LIMIT 3"
+            ).fetchall()
+            top_people = [
+                {"label": r["label"] or f"Person {r['cluster_id'].replace('p', '')}",
+                 "photo_count": int(r["photo_count"])}
+                for r in raw_people
+            ]
+            loc_count = c.execute(
+                "SELECT COUNT(DISTINCT ROUND(latitude, 2) || ',' || ROUND(longitude, 2)) "
+                "FROM photos WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+            ).fetchone()[0]
+            pet_row = c.execute(
+                "SELECT 1 FROM photos WHERE object_tags LIKE ? OR object_tags LIKE ? LIMIT 1",
+                ('%"dog"%', '%"cat"%')
+            ).fetchone()
+            pets_detected = bool(pet_row)
+
+        people_names = ", ".join(f"{p['label']} ({p['photo_count']} photos)" for p in top_people) if top_people else "None recorded"
+        prompt = f"""You are writing a short annual photo recap (Spotify Wrapped style). Write exactly 2-3 friendly sentences summarizing these facts. Do not use markdown, bullet points, or invent facts:
+- Total photos: {total}
+- Top people: {people_names}
+- Top locations: {loc_count} locations
+- Pets detected: {"Yes" if pets_detected else "No"}
+Recap:"""
+
         req = urllib.request.Request(
             OLLAMA_URL,
-            data=json.dumps({"model": OLLAMA_MODEL, "prompt": "Hi", "stream": False}).encode("utf-8"),
+            data=json.dumps({
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.3, "num_predict": 70}
+            }).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=10):
-            pass
-        print(f"[wrapped] Ollama warmed up with model {OLLAMA_MODEL}")
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            nar = data.get("response", "").strip()
+            if nar and len(nar) > 20:
+                _cached_narrative = nar.strip('"\'*#')
+                print(f"[wrapped] Ollama narrative pre-generated: {_cached_narrative}")
     except Exception as e:
-        print(f"[wrapped] Ollama warmup skipped: {e}")
+        print(f"[wrapped] Ollama warmup note: {e}")
 
 
 def _generate_narrative(total_photos: int, top_people: list[dict],
                         top_locations: list[dict], pets_detected: bool) -> str:
+    global _cached_narrative
+    if _cached_narrative:
+        return _cached_narrative
+
     # Deterministic fallback template
     person_text = f", spending the most time with {top_people[0]['label']}" if top_people else ""
     loc_text = f" across {len(top_locations)} places" if top_locations else " in your favorite spots"
@@ -61,7 +106,7 @@ Recap:"""
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": 0.3, "num_predict": 90}
+                "options": {"temperature": 0.3, "num_predict": 70}
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
@@ -69,8 +114,8 @@ Recap:"""
             data = json.loads(resp.read().decode("utf-8"))
             nar = data.get("response", "").strip()
             if nar and len(nar) > 20:
-                nar = nar.strip('"\'*#')
-                return nar
+                _cached_narrative = nar.strip('"\'*#')
+                return _cached_narrative
     except Exception:
         pass
 
