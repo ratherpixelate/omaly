@@ -33,13 +33,13 @@ class AppSidebar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 32, 16, 14),
             child: Text('omaly', style: theme.textTheme.titleLarge),
           ),
           const SizedBox(height: 16),
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.fromLTRB(0, 20, 0, 8),
               itemCount: items.length,
               itemBuilder: (context, i) => _DestinationCard(
                 destination: items[i],
@@ -94,7 +94,7 @@ class _DestinationCard extends StatelessWidget {
               height: AppSidebar.tileHeight,
               width: double.infinity,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.fromLTRB(28, 10, 20, 10),
                 child: Row(
                   children: [
                     Icon(
@@ -108,7 +108,7 @@ class _DestinationCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.w500,
+                            selected ? FontWeight.w800 : FontWeight.w700,
                         color: selected ? Colors.white : Colors.white70,
                       ),
                     ),
@@ -146,7 +146,7 @@ class _ThemeToggle extends StatelessWidget {
           child: SizedBox(
             height: AppSidebar.tileHeight,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(28, 10, 20, 10),
               child: Row(
                 children: [
                   Icon(
@@ -159,7 +159,7 @@ class _ThemeToggle extends StatelessWidget {
                     isDark ? 'Light theme' : 'Dark theme',
                     style: const TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w700,
                       color: Colors.white70,
                     ),
                   ),

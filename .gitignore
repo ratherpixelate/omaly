@@ -224,6 +224,7 @@ __marimo__/
 backend/.venv/
 backend/db/omaly.db
 backend/data/thumbnails/
+backend/thumbnails
 backend/data/demo_photos
 frontend/build/
 frontend/.dart_tool/
@@ -232,4 +233,4 @@ __pycache__/
 *.pyc
 yolov8n.pt
 backend/data/
-EOF
+EOFbackend/db/*.db
