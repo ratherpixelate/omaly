@@ -1322,6 +1322,21 @@ class CollectionsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Colors for the wrapped card based on theme.
+    final wrappedCardBg = isDark
+        ? const Color(0xFF121318)
+        : const Color(0xFFF9F8FE);
+    final wrappedCardText = isDark
+        ? const Color(0xFFF9F8FE)
+        : const Color(0xFF121318);
+    final wrappedButtonBg = isDark
+        ? const Color(0xFFDBE2FF)
+        : const Color(0xFF121318);
+    final wrappedButtonText = isDark
+        ? const Color(0xFF121318)
+        : const Color(0xFFF9F8FE);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1330,6 +1345,81 @@ class CollectionsPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'Collections',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Wrapped card
+            Material(
+              color: wrappedCardBg,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () {
+                  // TODO: Navigate to wrapped screen
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Your omaly wrapped is ready',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: wrappedCardText,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '1284 photos. Let\'s see what they were upto',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: wrappedCardText.withValues(alpha: 0.7),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      // See me wrapped button - styled like navigation buttons
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Material(
+                          color: wrappedButtonBg,
+                          borderRadius: BorderRadius.circular(28),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () {
+                              // TODO: Navigate to wrapped screen
+                            },
+                            hoverColor: Colors.black.withValues(alpha: 0.04),
+                            splashColor: Colors.black.withValues(alpha: 0.06),
+                            highlightColor: Colors.black.withValues(
+                              alpha: 0.02,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 14,
+                              ),
+                              child: Text(
+                                'see me wrapped',
+                                style: TextStyle(
+                                  color: wrappedButtonText,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
             Text(
               'Collections',
               style: theme.textTheme.headlineMedium?.copyWith(
