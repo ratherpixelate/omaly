@@ -1,6 +1,6 @@
 """Visual check of face detection + clustering. Writes an HTML report.
 
-    uv run python -m ingestion.debug_faces [--db path] [--out data/debug]
+    uv run python -m ingestion.debug.debug_faces [--db path] [--out data/debug]
     xdg-open data/debug/index.html
 
 Box colors:
@@ -12,12 +12,18 @@ A face you can SEE but that has no box at all = a detector miss.
 import argparse
 import html
 import sqlite3
+import sys
 from pathlib import Path
 
 from PIL import ImageDraw, ImageFont
 
-from . import DB_PATH, load_rgb
-from .faces import MAX_SIDE, MIN_FACE_PX, assign_clusters, backend_name, detect_all
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from ingestion import DB_PATH, load_rgb
+    from ingestion.faces import MAX_SIDE, MIN_FACE_PX, assign_clusters, backend_name, detect_all
+else:
+    from .. import DB_PATH, load_rgb
+    from ..faces import MAX_SIDE, MIN_FACE_PX, assign_clusters, backend_name, detect_all
 
 PALETTE = [(230, 25, 75), (60, 180, 75), (0, 130, 200), (245, 130, 48), (145, 30, 180),
            (70, 240, 240), (240, 50, 230), (210, 245, 60), (0, 128, 128), (170, 110, 40),

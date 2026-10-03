@@ -1,6 +1,6 @@
 """Visual check of the best-shot picker. Writes an HTML report.
 
-    uv run python -m ingestion.debug_quality [--db path] [--out data/debug]
+    uv run python -m ingestion.debug.debug_quality [--db path] [--out data/debug]
     xdg-open data/debug/index.html
 
 For every burst group: photos ranked best-first, boxes drawn per face,
@@ -12,12 +12,18 @@ debug_faces.py.
 import argparse
 import html
 import sqlite3
+import sys
 from pathlib import Path
 
 from PIL import ImageDraw, ImageFont
 
-from . import DB_PATH, load_rgb
-from .quality import CROP_MAX_SIDE, rank_group
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from ingestion import DB_PATH, load_rgb
+    from ingestion.quality import CROP_MAX_SIDE, rank_group
+else:
+    from .. import DB_PATH, load_rgb
+    from ..quality import CROP_MAX_SIDE, rank_group
 
 GREEN, AMBER, RED, GRAY = (30, 200, 90), (245, 180, 40), (230, 60, 60), (150, 150, 150)
 

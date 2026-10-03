@@ -25,7 +25,7 @@ Raw per-photo facts are cached in the photo_quality table keyed by file mtime.
 The group-dependent part (tracks, ear maxima, normalization) is cheap and
 recomputed per request -- it is what makes sharpness relative to the burst.
 
-Debug it visually:  uv run python -m ingestion.debug_quality
+Debug it visually:  uv run python -m ingestion.debug.debug_quality
 """
 import json
 import math
