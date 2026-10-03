@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:http/http.dart' as http;
 
+import '../api/api_client.dart';
 import '../config.dart';
+import '../screens/wrapped_screen.dart';
 import '../widgets/photo_tile.dart';
 import '../widgets/video_player_view.dart';
 import 'photo_detail_page.dart';
@@ -1319,13 +1321,26 @@ class CollectionsPage extends StatelessWidget {
   // TODO: replace with the backend's face-grouping response.
   static const List<(String, int)> _people = [];
 
+  void _openWrapped(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text('omaly wrapped'),
+          ),
+          body: WrappedScreen(api: createApiClient()),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     // Navigation button colors (from sidebar): dark bg with white text.
     const navBg = Color(0xFF1E1F24);
-    const navBgSelected = Color(0xFF21232F);
     const navTextDim = Colors.white70;
 
     return Scaffold(
@@ -1342,70 +1357,73 @@ class CollectionsPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            // Wrapped card - smaller, styled like nav buttons
-            Material(
-              color: navBg,
-              borderRadius: BorderRadius.circular(12),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () {
-                  // TODO: Navigate to wrapped screen
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Your omaly wrapped is ready',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
+            // Wrapped card - bigger height, rectangular & squared (radius 16), text-width vibrant button (radius 12)
+            SizedBox(
+              width: 520,
+              child: Material(
+                color: navBg,
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _openWrapped(context),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 52),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Your omaly wrapped is ready',
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '1284 photos. Let\'s see what they were upto',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: navTextDim,
+                        const SizedBox(height: 16),
+                        Text(
+                          '1284 photos. Let\'s see what they were upto',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: navTextDim,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      // see my wrapped button - styled like navigation buttons
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Material(
-                          color: navBgSelected,
-                          borderRadius: BorderRadius.circular(28),
-                          clipBehavior: Clip.antiAlias,
-                          child: InkWell(
-                            onTap: () {
-                              // TODO: Navigate to wrapped screen
-                            },
-                            hoverColor: Colors.white.withValues(alpha: 0.04),
-                            splashColor: Colors.white.withValues(alpha: 0.06),
-                            highlightColor: Colors.white.withValues(
-                              alpha: 0.02,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 12,
-                              ),
-                              child: Text(
-                                'see my wrapped',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
+                        const SizedBox(height: 40),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Material(
+                            color: const Color(0xFFDCE4F7),
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              onTap: () => _openWrapped(context),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 16,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'see my wrapped',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(
+                                      Icons.arrow_forward_rounded,
+                                      color: Colors.black87,
+                                      size: 18,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

@@ -25,9 +25,9 @@ app = FastAPI(title="Omaly API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Folder of photos to serve. Override with PHOTOS_DIR=/path/to/dir.
-PHOTOS_DIR = Path(
-    os.environ.get("PHOTOS_DIR", Path.home() / "Downloads" / "photos")
-)
+_demo_dir = Path(__file__).parent / "data" / "demo_photos"
+_default_photos = _demo_dir if _demo_dir.is_dir() else Path.home() / "Downloads" / "photos"
+PHOTOS_DIR = Path(os.environ.get("PHOTOS_DIR", _default_photos))
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic"}
 

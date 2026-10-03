@@ -232,6 +232,16 @@ frontend/.dart_tool/
 __pycache__/
 *.pyc
 yolov8n.pt
-backend/data/
-EOFbackend/db/*.db
+backend/db/*.db
 temp_ui/
+
+# Root-level accidental Flutter template files (actual app is in frontend/)
+/pubspec.yaml
+/pubspec.lock
+/test/
+/windows/
+/.dart_tool/
+/.idea/
+/.metadata
+/analysis_options.yaml
+/omaly.iml
