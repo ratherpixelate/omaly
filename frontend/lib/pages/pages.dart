@@ -1,11 +1,17 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+// ScrollCacheExtent lives in the rendering layer and is not re-exported by
+// material.dart.
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:http/http.dart' as http;
 
+import '../api/api_client.dart';
 import '../config.dart';
+import '../screens/wrapped_screen.dart';
 import '../widgets/photo_tile.dart';
 import '../widgets/video_player_view.dart';
+import 'photo_detail_page.dart';
 
 /// Gallery — the default landing page.
 ///
@@ -26,6 +32,10 @@ class _GalleryPageState extends State<GalleryPage> {
   /// Extra left inset applied to the prefix icon, on top of Material's own
   /// minimum prefix padding.
   static const double _kSearchIconInset = 20;
+
+  /// Decode width for gallery grid tiles. The grid caps tiles at 140 logical
+  /// px, so 280 covers a 2x display without decoding the full-size photo.
+  static const int _kTileDecodeWidth = 280;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -289,35 +299,55 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  /// Circular icon button matching the search field's height and fill, tinted
-  /// #DBE2FF with dark glyphs when [active].
+  /// Square icon button matching the search field's height and fill.
+  ///
+  /// Rests as a rounded rectangle (32px corners) and becomes a full circle
+  /// when [active], which is also when it takes the #DBE2FF tint and dark
+  /// glyph. The shape change is animated so the morph reads as one control.
   Widget _roundIconButton({
     required IconData icon,
     required bool active,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: active
-          ? const Color(0xFFDBE2FF)
-          : Theme.of(context).colorScheme.surfaceContainerHighest
-                .withValues(alpha: 0.6),
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: _kSearchHeight,
-          height: _kSearchHeight,
-          child: Icon(
-            icon,
-            size: 32,
-            color: active
-                ? const Color(0xFF1A1C2E)
-                : Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
+    // A square needs radius == half its side to render as a full circle.
+    final restingRadius = BorderRadius.circular(32);
+    final activeRadius = BorderRadius.circular(_kSearchHeight / 2);
+
+    return TweenAnimationBuilder<BorderRadius?>(
+      tween: BorderRadiusTween(
+        begin: restingRadius,
+        end: active ? activeRadius : restingRadius,
       ),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      builder: (context, radius, _) {
+        return Material(
+          color: active
+              ? const Color(0xFFDBE2FF)
+              : Theme.of(context).colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.6),
+          shape: RoundedRectangleBorder(borderRadius: radius ?? restingRadius),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            // customBorder needs a non-null radius; the tween never yields null.
+            customBorder: RoundedRectangleBorder(
+              borderRadius: radius ?? restingRadius,
+            ),
+            onTap: onTap,
+            child: SizedBox(
+              width: _kSearchHeight,
+              height: _kSearchHeight,
+              child: Icon(
+                icon,
+                size: 32,
+                color: active
+                    ? const Color(0xFF1A1C2E)
+                    : Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -828,6 +858,12 @@ class _GalleryPageState extends State<GalleryPage> {
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
       ),
+      // Build tiles a bit beyond the viewport so fast scrolling lands on
+      // already-decoded images instead of shimmer placeholders.
+      scrollCacheExtent: ScrollCacheExtent.pixels(800),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
       itemCount: ordered.length,
       itemBuilder: (context, i) {
         final r = ordered[i];
@@ -841,7 +877,12 @@ class _GalleryPageState extends State<GalleryPage> {
         };
         return _tile(
           item,
-          PhotoTile(photoId: r['id'] as String, uri: uri, borderRadius: 0),
+          PhotoTile(
+            photoId: r['id'] as String,
+            uri: uri,
+            borderRadius: 0,
+            cacheWidth: _kTileDecodeWidth,
+          ),
           uri: uri,
         );
       },
@@ -897,6 +938,12 @@ class _GalleryPageState extends State<GalleryPage> {
           mainAxisSpacing: 2,
           crossAxisSpacing: 2,
         ),
+        // Build tiles a bit beyond the viewport so fast scrolling lands on
+        // already-decoded images instead of shimmer placeholders.
+        scrollCacheExtent: ScrollCacheExtent.pixels(800),
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         itemCount: photos.length,
         itemBuilder: (context, i) {
           final p = photos[i];
@@ -913,6 +960,7 @@ class _GalleryPageState extends State<GalleryPage> {
                     photoId: p['id'] as String,
                     uri: uri,
                     borderRadius: 0,
+                    cacheWidth: _kTileDecodeWidth,
                   ),
             uri: uri,
           );
@@ -937,6 +985,9 @@ class _FoldersPageState extends State<FoldersPage> {
   String _query = '';
   List<Map<String, dynamic>>? _photos;
   Object? _error;
+
+  /// Folder currently opened ('' is the photos root). Null = folder list.
+  String? _openFolder;
 
   @override
   void initState() {
@@ -969,6 +1020,132 @@ class _FoldersPageState extends State<FoldersPage> {
     }
   }
 
+  /// Human-readable byte size, e.g. "1.4 GB".
+  static String _formatSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
+  }
+
+  /// Sum of the listed file sizes in a folder.
+  static int _folderBytes(List<Map<String, dynamic>> items) {
+    var total = 0;
+    for (final p in items) {
+      final s = (p['size'] as num?)?.toInt();
+      if (s != null) total += s;
+    }
+    return total;
+  }
+
+  /// A single folder opened: header with back button, name, item count and
+  /// total size, then that folder's photos.
+  Widget _folderView(BuildContext context) {
+    final theme = Theme.of(context);
+    final folder = _openFolder!;
+    final items =
+        (_photos ?? [])
+            .where((p) => (p['folder'] as String? ?? '') == folder)
+            .toList()
+          ..sort((a, b) {
+            final aTs = (a['modified_at'] as num?)?.toDouble() ?? 0;
+            final bTs = (b['modified_at'] as num?)?.toDouble() ?? 0;
+            return bTs.compareTo(aTs);
+          });
+    final label = folder.isEmpty ? '(root)' : folder;
+    final bytes = _folderBytes(items);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+          child: Row(
+            children: [
+              // Back arrow (Android drawable arrow_back_24).
+              IconButton(
+                tooltip: 'Back to folders',
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => setState(() => _openFolder = null),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${items.length} item${items.length == 1 ? '' : 's'}'
+                      '  •  ${_formatSize(bytes)}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? const Center(child: Text('This folder is empty.'))
+              : GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 140,
+                    mainAxisSpacing: 2,
+                    crossAxisSpacing: 2,
+                  ),
+                  scrollCacheExtent: ScrollCacheExtent.pixels(800),
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  itemCount: items.length,
+                  itemBuilder: (context, i) {
+                    final p = items[i];
+                    final isVideo = p['type'] == 'video';
+                    return GestureDetector(
+                      onTap: () {
+                        if (isVideo) return;
+                        PhotoDetailPage.open(
+                          context,
+                          photoId: p['id'] as String,
+                          imageUrl: Uri.parse('$kApiBaseUrl${p['url']}'),
+                        );
+                      },
+                      child: isVideo
+                          ? VideoTile(
+                              photoId: p['id'] as String,
+                              name: p['name'] as String? ?? p['id'] as String,
+                            )
+                          : PhotoTile(
+                              photoId: p['id'] as String,
+                              uri: Uri.parse('$kApiBaseUrl${p['url']}'),
+                              borderRadius: 0,
+                              cacheWidth: 280,
+                            ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget body;
@@ -981,6 +1158,8 @@ class _FoldersPageState extends State<FoldersPage> {
       );
     } else if (_photos == null) {
       body = const Center(child: CircularProgressIndicator());
+    } else if (_openFolder != null) {
+      body = _folderView(context);
     } else {
       // Group by folder ('' = photos directly in the root).
       final byFolder = <String, List<Map<String, dynamic>>>{};
@@ -1066,6 +1245,10 @@ class _FoldersPageState extends State<FoldersPage> {
                   crossAxisSpacing: 16,
                 ),
                 itemCount: visibleFolders.length,
+                scrollCacheExtent: ScrollCacheExtent.pixels(600),
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
                 itemBuilder: (context, i) {
                   final entry = visibleFolders[i];
                   final items = entry.value;
@@ -1076,33 +1259,41 @@ class _FoldersPageState extends State<FoldersPage> {
                   });
                   final latest = items.first;
                   final label = entry.key.isEmpty ? '(root)' : entry.key;
+                  final bytes = _folderBytes(items);
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: PhotoTile(
-                          photoId: latest['id'] as String,
-                          uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
-                          borderRadius: 24,
+                  return GestureDetector(
+                    onTap: () => setState(() => _openFolder = entry.key),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: PhotoTile(
+                            photoId: latest['id'] as String,
+                            uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
+                            borderRadius: 24,
+                            // Folder cards are up to 260 logical px wide.
+                            cacheWidth: 520,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        '${items.length} item${items.length == 1 ? '' : 's'}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface
-                              .withValues(alpha: 0.6),
+                        const SizedBox(height: 10),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
-                      ),
-                    ],
+                        Text(
+                          '${items.length} item${items.length == 1 ? '' : 's'}'
+                          '  •  ${_formatSize(bytes)}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface
+                                    .withValues(alpha: 0.6),
+                              ),
+                        ),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -1130,9 +1321,27 @@ class CollectionsPage extends StatelessWidget {
   // TODO: replace with the backend's face-grouping response.
   static const List<(String, int)> _people = [];
 
+  void _openWrapped(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text('omaly wrapped'),
+          ),
+          body: WrappedScreen(api: createApiClient()),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    // Navigation button colors (from sidebar): dark bg with white text.
+    const navBg = Color(0xFF1E1F24);
+    const navTextDim = Colors.white70;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1141,6 +1350,85 @@ class CollectionsPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'omaly wrapped',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Wrapped card - bigger height, rectangular & squared (radius 16), text-width vibrant button (radius 12)
+            SizedBox(
+              width: 520,
+              child: Material(
+                color: navBg,
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _openWrapped(context),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 52),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Your omaly wrapped is ready',
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          '1284 photos. Let\'s see what they were upto',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: navTextDim,
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Material(
+                            color: const Color(0xFFDCE4F7),
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              onTap: () => _openWrapped(context),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 16,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'see my wrapped',
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(
+                                      Icons.arrow_forward_rounded,
+                                      color: Colors.black87,
+                                      size: 18,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
             Text(
               'Collections',
               style: theme.textTheme.headlineMedium?.copyWith(
@@ -1236,6 +1524,19 @@ class SettingsPage extends StatelessWidget {
     'About': 'Know more about the application',
   };
 
+  /// Icon per settings row — the Material equivalents of the Android
+  /// drawables each row was specified with (palette_24, fullscreen_24,
+  /// settings_24, backup_24, manage_accounts_24, robot_2_24, info_24).
+  static const Map<String, IconData> _icons = {
+    'Appearance': Icons.palette_outlined,
+    'Media Viewer': Icons.fullscreen_rounded,
+    'General': Icons.settings_outlined,
+    'Backup & restore': Icons.backup_outlined,
+    'Manage Local Models': Icons.manage_accounts_outlined,
+    'Smart Features': Icons.smart_toy_outlined,
+    'About': Icons.info_outline_rounded,
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1261,6 +1562,7 @@ class SettingsPage extends StatelessWidget {
                 itemBuilder: (context, i) => _SettingsCard(
                   label: _items[i],
                   body: _bodies[_items[i]] ?? '',
+                  icon: _icons[_items[i]],
                   radius: BorderRadius.vertical(
                     top: Radius.circular(i == 0 ? 24 : 6),
                     bottom: Radius.circular(i == _items.length - 1 ? 24 : 6),
@@ -1281,11 +1583,15 @@ class _SettingsCard extends StatelessWidget {
   const _SettingsCard({
     required this.label,
     required this.body,
+    this.icon,
     this.radius = BorderRadius.zero,
   });
 
   final String label;
   final String body;
+
+  /// Icon shown inside the leading circle.
+  final IconData? icon;
 
   /// Corner radius — the first card gets a rounder top, the last a rounder
   /// bottom, so the stack reads as one grouped list.
@@ -1307,19 +1613,30 @@ class _SettingsCard extends StatelessWidget {
         splashColor: Colors.white.withValues(alpha: 0.06),
         highlightColor: Colors.white.withValues(alpha: 0.02),
         child: SizedBox(
-          height: 109,
+          height: 125,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
             child: Row(
               children: [
-                // Circle on the left of the title and body.
+                // Circle on the left of the title and body. Light mode uses the
+                // light brand colour, dark mode keeps the near-black one.
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 52,
+                  height: 52,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: isDark
+                        ? const Color(0xFF17181E)
+                        : const Color(0xFFF9F8FE),
                     shape: BoxShape.circle,
                   ),
+                  child: icon == null
+                      ? null
+                      : Icon(
+                          icon,
+                          size: 28,
+                          // Glyph contrast follows the circle it sits on.
+                          color: isDark ? Colors.white70 : textColor,
+                        ),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
@@ -1330,7 +1647,7 @@ class _SettingsCard extends StatelessWidget {
                       Text(
                         label,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
                           color: textColor,
                         ),
@@ -1341,7 +1658,7 @@ class _SettingsCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 14,
                           color: textColor.withValues(alpha: 0.7),
                         ),
                       ),
