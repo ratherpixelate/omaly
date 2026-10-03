@@ -16,10 +16,23 @@ router = APIRouter()
 
 OLLAMA_URL = os.getenv("OMALY_OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OMALY_OLLAMA_MODEL", "phi3:mini")
-OLLAMA_TIMEOUT_S = 3.5
+OLLAMA_TIMEOUT_S = 18.0
 
 
 _cached_narrative = None
+
+
+def _clean_narrative(text: str) -> str:
+    """Trim markdown and ensure narrative cleanly terminates at punctuation."""
+    if not text:
+        return ""
+    text = text.strip('"\'*# \n')
+    last_punct = max(text.rfind('.'), text.rfind('!'))
+    if last_punct > 25:
+        text = text[:last_punct + 1]
+    elif text and not text.endswith(('.', '!')):
+        text += '.'
+    return text
 
 
 def warmup():
@@ -48,12 +61,15 @@ def warmup():
             pets_detected = bool(pet_row)
 
         people_names = ", ".join(f"{p['label']} ({p['photo_count']} photos)" for p in top_people) if top_people else "None recorded"
-        prompt = f"""You are writing a short annual photo recap (Spotify Wrapped style). Write exactly 2-3 friendly sentences summarizing these facts. Do not use markdown, bullet points, or invent facts:
-- Total photos: {total}
-- Top people: {people_names}
-- Top locations: {loc_count} locations
-- Pets detected: {"Yes" if pets_detected else "No"}
-Recap:"""
+        prompt = (
+            "You are an annual photo recap narrator (Spotify Wrapped style). In exactly two friendly, "
+            "complete sentences, summarize these photo statistics (no markdown, no bullet points):\n"
+            f"- Total photos: {total}\n"
+            f"- Top people: {people_names}\n"
+            f"- Locations: {loc_count} locations\n"
+            f"- Pets detected: {'Yes' if pets_detected else 'No'}\n"
+            "Recap:"
+        )
 
         req = urllib.request.Request(
             OLLAMA_URL,
@@ -61,15 +77,16 @@ Recap:"""
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": 0.3, "num_predict": 70}
+                "keep_alive": -1,
+                "options": {"temperature": 0.3, "num_predict": 90}
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            nar = data.get("response", "").strip()
+            nar = _clean_narrative(data.get("response", ""))
             if nar and len(nar) > 20:
-                _cached_narrative = nar.strip('"\'*#')
+                _cached_narrative = nar
                 print(f"[wrapped] Ollama narrative pre-generated: {_cached_narrative}")
     except Exception as e:
         print(f"[wrapped] Ollama warmup note: {e}")
@@ -81,7 +98,7 @@ def _generate_narrative(total_photos: int, top_people: list[dict],
     if _cached_narrative:
         return _cached_narrative
 
-    # Deterministic fallback template
+    # Deterministic fallback template if Ollama is unreachable
     person_text = f", spending the most time with {top_people[0]['label']}" if top_people else ""
     loc_text = f" across {len(top_locations)} places" if top_locations else " in your favorite spots"
     pet_text = ", along with your favorite pets" if pets_detected else ""
@@ -92,12 +109,15 @@ def _generate_narrative(total_photos: int, top_people: list[dict],
 
     # Attempt local Ollama generation
     people_names = ", ".join(f"{p['label']} ({p['photo_count']} photos)" for p in top_people) if top_people else "None recorded"
-    prompt = f"""You are writing a short annual photo recap (Spotify Wrapped style). Write exactly 2-3 friendly sentences summarizing these facts. Do not use markdown, bullet points, or invent facts:
-- Total photos: {total_photos}
-- Top people: {people_names}
-- Top locations: {len(top_locations)} locations
-- Pets detected: {"Yes" if pets_detected else "No"}
-Recap:"""
+    prompt = (
+        "You are an annual photo recap narrator (Spotify Wrapped style). In exactly two friendly, "
+        "complete sentences, summarize these photo statistics (no markdown, no bullet points):\n"
+        f"- Total photos: {total_photos}\n"
+        f"- Top people: {people_names}\n"
+        f"- Locations: {len(top_locations)} locations\n"
+        f"- Pets detected: {'Yes' if pets_detected else 'No'}\n"
+        "Recap:"
+    )
 
     try:
         req = urllib.request.Request(
@@ -106,18 +126,19 @@ Recap:"""
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": 0.3, "num_predict": 70}
+                "keep_alive": -1,
+                "options": {"temperature": 0.3, "num_predict": 90}
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_S) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            nar = data.get("response", "").strip()
+            nar = _clean_narrative(data.get("response", ""))
             if nar and len(nar) > 20:
-                _cached_narrative = nar.strip('"\'*#')
+                _cached_narrative = nar
                 return _cached_narrative
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[wrapped] Ollama live generation note: {e}")
 
     return fallback
 
