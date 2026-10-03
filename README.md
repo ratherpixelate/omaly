@@ -29,7 +29,9 @@ Every model runs locally on CPU. Weights are downloaded once on first use; after
 | `objects.py` | YOLOv8-nano object and pet tags |
 | `bursts.py` | Near-duplicate grouping |
 | `verify.py` | Checks the DB against the contract the backend relies on |
+| `quality.py` | Best-shot scoring: person-relative eye aspect ratio (blink detection) + Laplacian sharpness; backs `GET /best-shot` |
 | `debug_faces.py` | HTML report: boxes on every face, plus crops grouped by person |
+| `debug_quality.py` | HTML report: burst photos ranked best-first with per-face eye-openness boxes |
 | `make_stress_folder.py` | Generates corrupt and awkward files to test robustness |
 
 ## Run it

@@ -16,3 +16,12 @@ CREATE TABLE IF NOT EXISTS face_clusters (
     label TEXT,                     -- nullable, empty for MVP
     photo_count INTEGER NOT NULL
 );
+
+-- Best-shot metrics cache (written lazily by ingestion/quality.py on first
+-- /best-shot request; invalidated by file mtime, so no re-ingest needed).
+CREATE TABLE IF NOT EXISTS photo_quality (
+    photo_id TEXT PRIMARY KEY,      -- photos.id
+    mtime REAL NOT NULL,            -- file mtime when computed (invalidation key)
+    metrics TEXT NOT NULL,          -- JSON: raw per-photo facts (faces, ears, sharpness)
+    computed_at TEXT NOT NULL
+);
