@@ -21,7 +21,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 # Folder of photos to serve. Override with PHOTOS_DIR=/path/to/dir.
 PHOTOS_DIR = Path(
-    os.environ.get("PHOTOS_DIR", Path.home() / "Downloads" / "photos")
+    os.environ.get(
+        "PHOTOS_DIR",
+        r"C:\Users\HARINANDAN B\OneDrive\Desktop\github\omaly\backend\data\demo_photos",
+    )
 )
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic"}
