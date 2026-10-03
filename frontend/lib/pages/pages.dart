@@ -1322,21 +1322,11 @@ class CollectionsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
-    // Colors for the wrapped card based on theme.
-    final wrappedCardBg = isDark
-        ? const Color(0xFF121318)
-        : const Color(0xFFF9F8FE);
-    final wrappedCardText = isDark
-        ? const Color(0xFFF9F8FE)
-        : const Color(0xFF121318);
-    final wrappedButtonBg = isDark
-        ? const Color(0xFFDBE2FF)
-        : const Color(0xFF121318);
-    final wrappedButtonText = isDark
-        ? const Color(0xFF121318)
-        : const Color(0xFFF9F8FE);
+    // Navigation button colors (from sidebar): dark bg with white text.
+    const navBg = Color(0xFF1E1F24);
+    const navBgSelected = Color(0xFF21232F);
+    const navTextDim = Colors.white70;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1346,67 +1336,68 @@ class CollectionsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Collections',
+              'omaly wrapped',
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 24),
-            // Wrapped card
+            // Wrapped card - smaller, styled like nav buttons
             Material(
-              color: wrappedCardBg,
-              borderRadius: BorderRadius.circular(16),
+              color: navBg,
+              borderRadius: BorderRadius.circular(12),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
                 onTap: () {
                   // TODO: Navigate to wrapped screen
                 },
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         'Your omaly wrapped is ready',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: wrappedCardText,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
                         '1284 photos. Let\'s see what they were upto',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: wrappedCardText.withValues(alpha: 0.7),
+                          color: navTextDim,
                         ),
                       ),
-                      const SizedBox(height: 24),
-                      // See me wrapped button - styled like navigation buttons
+                      const SizedBox(height: 16),
+                      // see my wrapped button - styled like navigation buttons
                       Align(
                         alignment: Alignment.centerRight,
                         child: Material(
-                          color: wrappedButtonBg,
+                          color: navBgSelected,
                           borderRadius: BorderRadius.circular(28),
                           clipBehavior: Clip.antiAlias,
                           child: InkWell(
                             onTap: () {
                               // TODO: Navigate to wrapped screen
                             },
-                            hoverColor: Colors.black.withValues(alpha: 0.04),
-                            splashColor: Colors.black.withValues(alpha: 0.06),
-                            highlightColor: Colors.black.withValues(
+                            hoverColor: Colors.white.withValues(alpha: 0.04),
+                            splashColor: Colors.white.withValues(alpha: 0.06),
+                            highlightColor: Colors.white.withValues(
                               alpha: 0.02,
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 14,
+                                horizontal: 20,
+                                vertical: 12,
                               ),
                               child: Text(
-                                'see me wrapped',
-                                style: TextStyle(
-                                  color: wrappedButtonText,
-                                  fontSize: 15,
+                                'see my wrapped',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
