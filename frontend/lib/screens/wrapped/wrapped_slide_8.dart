@@ -1,18 +1,28 @@
 import 'package:flutter/material.dart';
 
+import '../../models/wrapped.dart';
+
 class WrappedSlide8 extends StatelessWidget {
-  const WrappedSlide8({super.key, required this.onNext});
+  const WrappedSlide8({
+    super.key,
+    required this.onNext,
+    this.locations = const [],
+  });
 
   final VoidCallback onNext;
+  final List<LocationStat> locations;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final locations = [
-      ('Location 1', 'You took 178 pictures here!'),
-      ('Location 2', 'You took 129 pictures here!'),
-      ('Location 3', 'You took 117 pictures here!'),
-    ];
+    final displayLocations = locations.isNotEmpty
+        ? [
+            for (final l in locations.take(3))
+              (l.name, 'You took ${l.photoCount} pictures here!')
+          ]
+        : const [
+            ('Private Location', 'No GPS tags in current photo collection.'),
+          ];
 
     return GestureDetector(
       onTap: onNext,
@@ -27,7 +37,7 @@ class WrappedSlide8 extends StatelessWidget {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (var i = 0; i < locations.length; i++) ...[
+                    for (var i = 0; i < displayLocations.length; i++) ...[
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -59,7 +69,7 @@ class WrappedSlide8 extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  locations[i].$1,
+                                  displayLocations[i].$1,
                                   style: theme.textTheme.headlineMedium?.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
@@ -67,7 +77,7 @@ class WrappedSlide8 extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  locations[i].$2,
+                                  displayLocations[i].$2,
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     color: Colors.white70,
                                   ),
@@ -77,7 +87,7 @@ class WrappedSlide8 extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (i < locations.length - 1) const SizedBox(height: 40),
+                      if (i < displayLocations.length - 1) const SizedBox(height: 40),
                     ],
                   ],
                 ),

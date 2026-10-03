@@ -1,14 +1,26 @@
 import 'package:flutter/material.dart';
 
 class WrappedSlide4 extends StatelessWidget {
-  const WrappedSlide4({super.key, required this.onNext, required this.totalPhotos});
+  const WrappedSlide4({
+    super.key,
+    required this.onNext,
+    required this.totalPhotos,
+    this.peakDay = 'January 17',
+    this.peakCount,
+  });
 
   final VoidCallback onNext;
   final int totalPhotos;
+  final String peakDay;
+  final int? peakCount;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final peakText = peakCount != null
+        ? 'you took the most pics on $peakDay ($peakCount photos)'
+        : 'you took the most pics on $peakDay';
+
     return GestureDetector(
       onTap: onNext,
       child: Container(
@@ -41,7 +53,7 @@ class WrappedSlide4 extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'you took the most pics on 13/05/2026',
+                  peakText,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.headlineSmall?.copyWith(
                     color: Colors.white70,

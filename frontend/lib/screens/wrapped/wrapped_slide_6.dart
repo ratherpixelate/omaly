@@ -1,18 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../../models/wrapped.dart';
+
 class WrappedSlide6 extends StatelessWidget {
-  const WrappedSlide6({super.key, required this.onNext});
+  const WrappedSlide6({
+    super.key,
+    required this.onNext,
+    this.people = const [],
+  });
 
   final VoidCallback onNext;
+  final List<PersonStat> people;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final people = [
-      ('Person 1', 'You took 178 pictures together!'),
-      ('Person 2', 'You took 129 pictures together!'),
-      ('Person 3', 'You took 117 pictures together!'),
-    ];
+    final displayPeople = people.isNotEmpty
+        ? [
+            for (final p in people.take(3))
+              (p.label, 'You took ${p.photoCount} pictures together!')
+          ]
+        : const [
+            ('Person 1', 'You took 11 pictures together!'),
+            ('Person 2', 'You took 9 pictures together!'),
+            ('Person 3', 'You took 8 pictures together!'),
+          ];
 
     return GestureDetector(
       onTap: onNext,
@@ -27,7 +39,7 @@ class WrappedSlide6 extends StatelessWidget {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (var i = 0; i < people.length; i++) ...[
+                    for (var i = 0; i < displayPeople.length; i++) ...[
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -59,7 +71,7 @@ class WrappedSlide6 extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  people[i].$1,
+                                  displayPeople[i].$1,
                                   style: theme.textTheme.headlineMedium?.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
@@ -67,7 +79,7 @@ class WrappedSlide6 extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  people[i].$2,
+                                  displayPeople[i].$2,
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     color: Colors.white70,
                                   ),
@@ -77,7 +89,7 @@ class WrappedSlide6 extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (i < people.length - 1) const SizedBox(height: 40),
+                      if (i < displayPeople.length - 1) const SizedBox(height: 40),
                     ],
                   ],
                 ),

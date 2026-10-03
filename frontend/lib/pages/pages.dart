@@ -1381,7 +1381,7 @@ class CollectionsPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          '1284 photos. Let\'s see what they were upto',
+                          'Relive your year in photos, places, and memories.',
                           style: theme.textTheme.titleLarge?.copyWith(
                             color: navTextDim,
                           ),

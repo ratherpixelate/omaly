@@ -8,4 +8,4 @@ const String kApiBaseUrl = 'http://localhost:8000';
 /// `false` -> UI reads from the real backend at [kApiBaseUrl].
 ///
 /// If a teammate's endpoint breaks mid-demo, flip this back to `true`.
-const bool kUseMockApi = true;
+const bool kUseMockApi = false;

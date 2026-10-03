@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 
 class WrappedSlide7 extends StatelessWidget {
-  const WrappedSlide7({super.key, required this.onNext});
+  const WrappedSlide7({
+    super.key,
+    required this.onNext,
+    this.locationCount = 0,
+  });
 
   final VoidCallback onNext;
+  final int locationCount;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final locationText = locationCount > 0
+        ? 'you visited $locationCount different locations this year'
+        : 'your location details stayed 100% private & offline';
     return GestureDetector(
       onTap: onNext,
       child: Container(
@@ -40,7 +48,7 @@ class WrappedSlide7 extends StatelessWidget {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'you visited 13 different locations this year',
+                  locationText,
                   textAlign: TextAlign.center,
                   style: theme.textTheme.headlineSmall?.copyWith(
                     color: Colors.white70,

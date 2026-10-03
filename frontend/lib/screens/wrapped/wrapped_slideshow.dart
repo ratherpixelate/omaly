@@ -64,7 +64,13 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
 
   @override
   Widget build(BuildContext context) {
-    const totalPhotos = 986;
+    final totalPhotos = widget.summary.totalPhotos > 0
+        ? widget.summary.totalPhotos
+        : (widget.summary.photosInYear.isNotEmpty ? widget.summary.photosInYear.length : 14);
+
+    final peakDayStat = widget.summary.statistics?.mostPhotosTakenInADay;
+    final peakDay = peakDayStat?.formattedDate ?? 'January 17';
+    final peakCount = peakDayStat?.photoCount;
 
     return Focus(
       autofocus: true,
@@ -96,14 +102,26 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
                 WrappedSlide4(
                   onNext: _nextPage,
                   totalPhotos: totalPhotos,
+                  peakDay: peakDay,
+                  peakCount: peakCount,
                 ),
                 WrappedSlide5(onNext: _nextPage),
-                WrappedSlide6(onNext: _nextPage),
-                WrappedSlide7(onNext: _nextPage),
-                WrappedSlide8(onNext: _nextPage),
+                WrappedSlide6(
+                  onNext: _nextPage,
+                  people: widget.summary.topPeople,
+                ),
+                WrappedSlide7(
+                  onNext: _nextPage,
+                  locationCount: widget.summary.topLocations.length,
+                ),
+                WrappedSlide8(
+                  onNext: _nextPage,
+                  locations: widget.summary.topLocations,
+                ),
                 WrappedSlide9(onNext: _nextPage),
                 WrappedSlide10(
                   onNext: _nextPage,
+                  summary: widget.summary,
                   totalPhotos: totalPhotos,
                 ),
                 WrappedSlide11(onFinish: widget.onFinished),

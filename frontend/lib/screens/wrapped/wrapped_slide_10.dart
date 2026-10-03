@@ -1,14 +1,48 @@
 import 'package:flutter/material.dart';
 
+import '../../models/wrapped.dart';
+
 class WrappedSlide10 extends StatelessWidget {
-  const WrappedSlide10({super.key, required this.onNext, required this.totalPhotos});
+  const WrappedSlide10({
+    super.key,
+    required this.onNext,
+    required this.summary,
+    this.totalPhotos,
+  });
 
   final VoidCallback onNext;
-  final int totalPhotos;
+  final WrappedSummary summary;
+  final int? totalPhotos;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final stats = summary.statistics;
+    final photosCount = totalPhotos ??
+        (summary.totalPhotos > 0
+            ? summary.totalPhotos
+            : (summary.photosInYear.isNotEmpty ? summary.photosInYear.length : 14));
+
+    final mostDay = stats?.mostPhotosTakenInADay != null
+        ? '${stats!.mostPhotosTakenInADay!.formattedDate} (${stats.mostPhotosTakenInADay!.photoCount} photos)'
+        : 'January 17, 2017 (9 photos)';
+
+    final mostLoc = stats?.mostVisitedLocation != null
+        ? stats!.mostVisitedLocation!.name
+        : (summary.topLocations.isNotEmpty
+            ? summary.topLocations.first.name
+            : 'Private / Offline (No GPS)');
+
+    final mostPerson = stats?.mostPhotosWithAPerson != null
+        ? '${stats!.mostPhotosWithAPerson!.label} (${stats.mostPhotosWithAPerson!.photoCount} photos)'
+        : (summary.topPeople.isNotEmpty
+            ? '${summary.topPeople.first.label} (${summary.topPeople.first.photoCount} photos)'
+            : 'None identified');
+
+    final busiestM = stats?.busiestMonth != null
+        ? '${stats!.busiestMonth!.formattedMonth} (${stats.busiestMonth!.photoCount} photos)'
+        : 'January 2017 (14 photos)';
+
     return GestureDetector(
       onTap: onNext,
       child: Container(
@@ -31,15 +65,15 @@ class WrappedSlide10 extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 40),
-                    _StatRow(label: 'Total photos taken:', value: '$totalPhotos'),
+                    _StatRow(label: 'Total photos taken:', value: '$photosCount'),
                     const SizedBox(height: 28),
-                    _StatRow(label: 'Most photos taken in a day:', value: '13/05/2026'),
+                    _StatRow(label: 'Most photos taken in a day:', value: mostDay),
                     const SizedBox(height: 28),
-                    _StatRow(label: 'Most photos taken at a location:', value: 'Location 1'),
+                    _StatRow(label: 'Most photos taken at a location:', value: mostLoc),
                     const SizedBox(height: 28),
-                    _StatRow(label: 'Most photos taken with a person:', value: 'Person 1'),
+                    _StatRow(label: 'Most photos taken with a person:', value: mostPerson),
                     const SizedBox(height: 28),
-                    _StatRow(label: 'Your busiest month:', value: 'May 2026 (340 photos)'),
+                    _StatRow(label: 'Your busiest month:', value: busiestM),
                   ],
                 ),
               ),

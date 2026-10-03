@@ -23,6 +23,7 @@ class HttpApiClient implements ApiClient {
   /// be seconds on CPU. Generous, but still bounded so the UI can never hang.
   static const Duration _searchTimeout = Duration(seconds: 15);
   static const Duration _shortTimeout = Duration(seconds: 10);
+  static const Duration _wrappedTimeout = Duration(seconds: 30);
 
   @override
   Future<SearchResponse> search(String query, {int topK = 20}) async {
@@ -48,7 +49,7 @@ class HttpApiClient implements ApiClient {
 
   @override
   Future<WrappedSummary> wrapped() async {
-    final json = await _get('/wrapped', timeout: _shortTimeout, what: 'wrapped');
+    final json = await _get('/wrapped', timeout: _wrappedTimeout, what: 'wrapped');
     return _decode(WrappedSummary.fromJson, json, 'wrapped');
   }
 
