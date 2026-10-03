@@ -1,10 +1,15 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+// ScrollCacheExtent lives in the rendering layer and is not re-exported by
+// material.dart.
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import '../widgets/photo_tile.dart';
+import '../widgets/video_player_view.dart';
+import 'photo_detail_page.dart';
 
 /// Gallery — the default landing page.
 ///
@@ -26,18 +31,50 @@ class _GalleryPageState extends State<GalleryPage> {
   /// minimum prefix padding.
   static const double _kSearchIconInset = 20;
 
+  /// Decode width for gallery grid tiles. The grid caps tiles at 140 logical
+  /// px, so 280 covers a 2x display without decoding the full-size photo.
+  static const int _kTileDecodeWidth = 280;
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
   List<Map<String, dynamic>>? _photos;
   Object? _error;
   String _query = '';
+
+  // Server-side object search: /search (CLIP text search in the backend).
+  List<Map<String, dynamic>>? _searchResults;
+  bool _searching = false;
+  Object? _searchError;
+  int _searchSeq = 0;
+
   bool _showTimelineControls = false;
   String _orderBy = 'capture_time'; // 'capture_time' | 'date_modified'
   bool _newestFirst = true;
   String _typeFilter = 'all'; // 'all' | 'photo' | 'video'
   int? _yearFilter;
   String? _sourceFilter;
+
+  /// Photo currently shown in the right preview panel (follows the mouse and
+  /// keeps the last one after the cursor leaves).
+  Map<String, dynamic>? _hovered;
+
+  /// Photo opened in focus mode (click): grid covered, photo fills the card.
+  Map<String, dynamic>? _focused;
+
+  /// Whether the right preview panel is open. Starts closed; toggled by the
+  /// sidebar button beside the filter button.
+  bool _panelOpen = false;
+
+  /// Identifies the current filter selection. Used as the grid's key so
+  /// changing any filter crossfades the whole grid instead of rearranging
+  /// tiles in place.
+  String get _filterSignature =>
+      '$_typeFilter|$_yearFilter|$_sourceFilter|$_newestFirst|$_orderBy|${_photos?.length}';
+
+  /// True when any filter pill differs from its default.
+  bool get _hasActiveFilter =>
+      _typeFilter != 'all' || _yearFilter != null || _sourceFilter != null;
 
   @override
   void initState() {
@@ -57,15 +94,12 @@ class _GalleryPageState extends State<GalleryPage> {
       final res = await http
           .get(Uri.parse('$kApiBaseUrl/photos'))
           .timeout(const Duration(seconds: 5));
-      if (res.statusCode != 200) {
-        throw Exception('HTTP ${res.statusCode}');
-      }
+      if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
       final body = jsonDecode(res.body) as Map<String, dynamic>;
-      final photos = (body['photos'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
       if (!mounted) return;
       setState(() {
-        _photos = photos;
+        _photos = (body['photos'] as List<dynamic>)
+            .cast<Map<String, dynamic>>();
         _error = null;
       });
     } catch (e) {
@@ -74,15 +108,44 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
+  Future<void> _runSearch(String q) async {
+    final seq = ++_searchSeq;
+    setState(() {
+      _searching = true;
+      _searchError = null;
+    });
+    try {
+      final uri = Uri.parse('$kApiBaseUrl/search')
+          .replace(queryParameters: {'q': q, 'top_k': '40'});
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        _searchResults = (body['results'] as List<dynamic>)
+            .cast<Map<String, dynamic>>();
+        _searching = false;
+      });
+    } catch (e) {
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        _searchError = e;
+        _searching = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      // The grid + preview panel stay mounted under the focus view so closing
+      // it never re-fetches or re-renders the tiles.
       body: Stack(
         children: [
           Column(
             children: [
-              // Pill-shaped search bar.
+              // Pill-shaped search bar, filter button and panel toggle.
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
                 child: Row(
@@ -93,17 +156,29 @@ class _GalleryPageState extends State<GalleryPage> {
                         child: TextField(
                           controller: _searchController,
                           focusNode: _searchFocus,
-                          onChanged: (v) => setState(() => _query = v),
+                          onChanged: (v) {
+                            setState(() => _query = v);
+                            if (v.trim().isEmpty) {
+                              _searchSeq++;
+                              setState(() {
+                                _searchResults = null;
+                                _searchError = null;
+                                _searching = false;
+                              });
+                            }
+                          },
+                          onSubmitted: (v) {
+                            final q = v.trim();
+                            if (q.isNotEmpty) _runSearch(q);
+                          },
                           textInputAction: TextInputAction.search,
                           style: const TextStyle(fontSize: 18),
                           decoration: InputDecoration(
                             hintText: 'Search photos',
                             hintStyle: const TextStyle(fontSize: 18),
-                            // The icon's box is exactly as tall as the field, so the icon
-                            // stays vertically centred inside a circle of
-                            // _kSearchHeight placed at the very left edge. Its width
-                            // carries the extra left inset, so the icon moves right
-                            // without leaving that box.
+                            // The icon's box is exactly as tall as the field,
+                            // so the icon stays vertically centred inside a
+                            // circle of _kSearchHeight placed at the left edge.
                             prefixIconConstraints: BoxConstraints.tightFor(
                               width: _kSearchHeight + _kSearchIconInset,
                               height: _kSearchHeight,
@@ -140,39 +215,67 @@ class _GalleryPageState extends State<GalleryPage> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    // Circular filter button to the right of the search bar, same
-                    // height and fill as the search field for matching styling.
-                    Material(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withValues(alpha: 0.6),
-                      shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () {
-                          setState(
-                            () =>
-                                _showTimelineControls = !_showTimelineControls,
-                          );
-                        },
-                        child: const SizedBox(
-                          width: _kSearchHeight,
-                          height: _kSearchHeight,
-                          child: Center(
-                            child: Icon(Icons.filter_list_rounded, size: 32),
-                          ),
+                    // Circular filter button, same height and fill as the
+                    // search field. Colored when filters are active.
+                    _roundIconButton(
+                      icon: Icons.filter_list_rounded,
+                      active: _showTimelineControls || _hasActiveFilter,
+                      onTap: () => setState(
+                        () => _showTimelineControls = !_showTimelineControls,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Circular sidebar/panel toggle button, same style.
+                    _roundIconButton(
+                      icon: Icons.view_sidebar_outlined,
+                      active: _panelOpen,
+                      onTap: () => setState(() => _panelOpen = !_panelOpen),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        child: KeyedSubtree(
+                          key: ValueKey(_filterSignature),
+                          child: _grid(context),
                         ),
+                      ),
+                    ),
+                    // Right preview panel: follows the hovered tile and keeps
+                    // the last one; collapses smoothly when closed.
+                    ClipRect(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeOut,
+                        width: _panelOpen ? 380 : 0,
+                        child: _panelOpen
+                            ? (_hovered == null
+                                  ? _emptyPreview(context)
+                                  : _previewPanel(context, _hovered!))
+                            : const SizedBox.shrink(),
                       ),
                     ),
                   ],
                 ),
               ),
-              Expanded(child: _grid(context)),
             ],
           ),
-          // Timeline controls card floats above the photos, like an
-          // anchored dropdown; it does not push the grid down.
+          // Tap anywhere outside the Timeline controls card to close it.
+          if (_showTimelineControls)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _showTimelineControls = false),
+              ),
+            ),
+          // Timeline controls card floats above the photos, anchored to the
+          // filter button; it does not push the grid down.
           if (_showTimelineControls)
             Positioned(
               top: 32 + _kSearchHeight + 12,
@@ -187,8 +290,62 @@ class _GalleryPageState extends State<GalleryPage> {
                 ),
               ),
             ),
+          // Focus view on top; the grid underneath stays mounted.
+          if (_focused != null) _focusView(context),
         ],
       ),
+    );
+  }
+
+  /// Square icon button matching the search field's height and fill.
+  ///
+  /// Rests as a rounded rectangle (32px corners) and becomes a full circle
+  /// when [active], which is also when it takes the #DBE2FF tint and dark
+  /// glyph. The shape change is animated so the morph reads as one control.
+  Widget _roundIconButton({
+    required IconData icon,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    // A square needs radius == half its side to render as a full circle.
+    final restingRadius = BorderRadius.circular(32);
+    final activeRadius = BorderRadius.circular(_kSearchHeight / 2);
+
+    return TweenAnimationBuilder<BorderRadius?>(
+      tween: BorderRadiusTween(
+        begin: restingRadius,
+        end: active ? activeRadius : restingRadius,
+      ),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      builder: (context, radius, _) {
+        return Material(
+          color: active
+              ? const Color(0xFFDBE2FF)
+              : Theme.of(context).colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.6),
+          shape: RoundedRectangleBorder(borderRadius: radius ?? restingRadius),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            // customBorder needs a non-null radius; the tween never yields null.
+            customBorder: RoundedRectangleBorder(
+              borderRadius: radius ?? restingRadius,
+            ),
+            onTap: onTap,
+            child: SizedBox(
+              width: _kSearchHeight,
+              height: _kSearchHeight,
+              child: Icon(
+                icon,
+                size: 32,
+                color: active
+                    ? const Color(0xFF1A1C2E)
+                    : Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -449,18 +606,300 @@ class _GalleryPageState extends State<GalleryPage> {
     };
   }
 
-  Widget _grid(BuildContext context) {
-    final photos = _photos;
-    final q = _query.trim().toLowerCase();
-    final visible = (photos == null || q.isEmpty)
-        ? photos?.toList()
-        : photos
-              .where((p) => (p['name'] as String).toLowerCase().contains(q))
-              .toList();
+  /// Placeholder shown in the preview panel when no photo has been hovered.
+  Widget _emptyPreview(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 24, 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Center(
+        child: Text(
+          'No preview',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ),
+    );
+  }
 
-    // Apply the timeline controls: sort by the chosen date, direction by the pill.
-    // We only have filesystem mtime (the backend's `modified_at`); "capture time"
-    // equals it until the backend starts extracting EXIF dates.
+  /// Right-side preview card: the hovered photo fitted inside the card, with
+  /// its name and metadata.
+  Widget _previewPanel(BuildContext context, Map<String, dynamic> p) {
+    final theme = Theme.of(context);
+    final url = p['url'] as String?;
+    final uri = url == null ? null : Uri.parse('$kApiBaseUrl$url');
+    final isVideo = p['type'] == 'video';
+
+    final folder = p['folder'] as String?;
+    var meta = (folder != null && folder.isNotEmpty) ? folder : '';
+    final size = (p['size'] as num?)?.toInt();
+    if (size != null) {
+      if (meta.isNotEmpty) meta += '  •  ';
+      meta += size < 1024 * 1024
+          ? '${(size / 1024).toStringAsFixed(0)} KB'
+          : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 24, 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    p['name'] as String? ?? p['id'] as String,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close preview',
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => setState(() {
+                    _hovered = null;
+                    _panelOpen = false;
+                  }),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: isVideo
+                  ? VideoTile(
+                      photoId: p['id'] as String,
+                      name: p['name'] as String? ?? '',
+                    )
+                  : (uri == null
+                        ? PhotoTile(
+                            photoId: p['id'] as String,
+                            uri: null,
+                            borderRadius: 12,
+                          )
+                        : InteractiveViewer(
+                            child: Center(
+                              child: Image.network(
+                                uri.toString(),
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    PhotoTile(
+                                      photoId: p['id'] as String,
+                                      uri: uri,
+                                      borderRadius: 12,
+                                    ),
+                              ),
+                            ),
+                          )),
+            ),
+          ),
+          if (meta.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Text(
+                meta,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Focus mode: the clicked photo fitted to the whole content card, with a
+  /// back button to return to the grid.
+  Widget _focusView(BuildContext context) {
+    final p = _focused!;
+    final theme = Theme.of(context);
+    final url = p['url'] as String?;
+    final uri = url == null ? null : Uri.parse('$kApiBaseUrl$url');
+    final isVideo = p['type'] == 'video';
+
+    return Material(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: isVideo
+                ? (uri == null
+                      ? VideoTile(
+                          photoId: p['id'] as String,
+                          name: p['name'] as String? ?? '',
+                        )
+                      : VideoPlayerView(uri: uri))
+                : (uri == null
+                      ? PhotoTile(
+                          photoId: p['id'] as String,
+                          uri: null,
+                          borderRadius: 0,
+                        )
+                      : InteractiveViewer(
+                          child: Center(
+                            child: Image.network(
+                              uri.toString(),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  PhotoTile(
+                                    photoId: p['id'] as String,
+                                    uri: uri,
+                                    borderRadius: 0,
+                                  ),
+                            ),
+                          ),
+                        )),
+          ),
+          Positioned(
+            top: 12,
+            left: 12,
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Back to grid',
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.white,
+                  ),
+                  onPressed: () => setState(() {
+                    _focused = null;
+                    _panelOpen = false;
+                  }),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  p['name'] as String? ?? p['id'] as String,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Wrap a grid tile so hover updates the preview panel and a click opens the
+  /// focus view.
+  Widget _tile(Map<String, dynamic> p, Widget child, {Uri? uri}) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = p),
+      child: GestureDetector(
+        onTap: () => setState(() {
+          _focused = p;
+          _hovered = null;
+          _panelOpen = false;
+        }),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _searchGrid(BuildContext context, String q) {
+    if (_searching) return const Center(child: CircularProgressIndicator());
+    if (_searchError != null) {
+      return Center(
+        child: Text(
+          'Search failed.\nIs the backend running?\n$_searchError',
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    final results = _searchResults;
+    if (results == null || results.isEmpty) {
+      return Center(
+        child: Text(
+          results == null
+              ? 'Press enter to search for "$q".'
+              : 'No photos found for "$q".',
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    // Honour the timeline direction pill using each result's taken_at date.
+    final ordered = results.toList()
+      ..sort((a, b) {
+        final aTs = DateTime.tryParse(a['taken_at'] as String? ?? '');
+        final bTs = DateTime.tryParse(b['taken_at'] as String? ?? '');
+        if (aTs == null && bTs == null) return 0;
+        if (aTs == null) return 1;
+        if (bTs == null) return -1;
+        return _newestFirst ? bTs.compareTo(aTs) : aTs.compareTo(bTs);
+      });
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 2),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 140,
+        mainAxisSpacing: 2,
+        crossAxisSpacing: 2,
+      ),
+      // Build tiles a bit beyond the viewport so fast scrolling lands on
+      // already-decoded images instead of shimmer placeholders.
+      scrollCacheExtent: ScrollCacheExtent.pixels(800),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      itemCount: ordered.length,
+      itemBuilder: (context, i) {
+        final r = ordered[i];
+        final thumb = r['thumbnail_url'] as String?;
+        final uri = thumb == null ? null : Uri.parse('$kApiBaseUrl$thumb');
+        final item = {
+          'id': r['id'],
+          'name': r['id'],
+          'url': thumb,
+          'type': 'photo',
+        };
+        return _tile(
+          item,
+          PhotoTile(
+            photoId: r['id'] as String,
+            uri: uri,
+            borderRadius: 0,
+            cacheWidth: _kTileDecodeWidth,
+          ),
+          uri: uri,
+        );
+      },
+    );
+  }
+
+  Widget _grid(BuildContext context) {
+    final q = _query.trim();
+
+    // When a query is active, the grid shows /search results (object
+    // identification via CLIP); otherwise the local /photos listing.
+    if (q.isNotEmpty) return _searchGrid(context, q);
+
+    final photos = _photos;
+    final visible = photos?.toList();
+
+    // Sort by the chosen date, direction by the pill. We only have filesystem
+    // mtime (the backend's `modified_at`); "capture time" equals it until the
+    // backend starts extracting EXIF dates.
     visible?.sort((a, b) {
       final aTs = (a['modified_at'] as num?)?.toDouble() ?? 0;
       final bTs = (b['modified_at'] as num?)?.toDouble() ?? 0;
@@ -491,19 +930,37 @@ class _GalleryPageState extends State<GalleryPage> {
       null => const Center(child: CircularProgressIndicator()),
       [] => Center(child: Text(_emptyMessage(q))),
       final photos => GridView.builder(
-        padding: const EdgeInsets.fromLTRB(24, 0, 2, 2),
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 2),
         gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: 140,
           mainAxisSpacing: 2,
           crossAxisSpacing: 2,
         ),
+        // Build tiles a bit beyond the viewport so fast scrolling lands on
+        // already-decoded images instead of shimmer placeholders.
+        scrollCacheExtent: ScrollCacheExtent.pixels(800),
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         itemCount: photos.length,
         itemBuilder: (context, i) {
           final p = photos[i];
-          return PhotoTile(
-            photoId: p['id'] as String,
-            uri: Uri.parse('$kApiBaseUrl${p['url']}'),
-            borderRadius: 0,
+          final isVideo = p['type'] == 'video';
+          final uri = isVideo ? null : Uri.parse('$kApiBaseUrl${p['url']}');
+          return _tile(
+            p,
+            isVideo
+                ? VideoTile(
+                    photoId: p['id'] as String,
+                    name: p['name'] as String? ?? p['id'] as String,
+                  )
+                : PhotoTile(
+                    photoId: p['id'] as String,
+                    uri: uri,
+                    borderRadius: 0,
+                    cacheWidth: _kTileDecodeWidth,
+                  ),
+            uri: uri,
           );
         },
       ),
@@ -526,6 +983,9 @@ class _FoldersPageState extends State<FoldersPage> {
   String _query = '';
   List<Map<String, dynamic>>? _photos;
   Object? _error;
+
+  /// Folder currently opened ('' is the photos root). Null = folder list.
+  String? _openFolder;
 
   @override
   void initState() {
@@ -558,6 +1018,132 @@ class _FoldersPageState extends State<FoldersPage> {
     }
   }
 
+  /// Human-readable byte size, e.g. "1.4 GB".
+  static String _formatSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
+  }
+
+  /// Sum of the listed file sizes in a folder.
+  static int _folderBytes(List<Map<String, dynamic>> items) {
+    var total = 0;
+    for (final p in items) {
+      final s = (p['size'] as num?)?.toInt();
+      if (s != null) total += s;
+    }
+    return total;
+  }
+
+  /// A single folder opened: header with back button, name, item count and
+  /// total size, then that folder's photos.
+  Widget _folderView(BuildContext context) {
+    final theme = Theme.of(context);
+    final folder = _openFolder!;
+    final items =
+        (_photos ?? [])
+            .where((p) => (p['folder'] as String? ?? '') == folder)
+            .toList()
+          ..sort((a, b) {
+            final aTs = (a['modified_at'] as num?)?.toDouble() ?? 0;
+            final bTs = (b['modified_at'] as num?)?.toDouble() ?? 0;
+            return bTs.compareTo(aTs);
+          });
+    final label = folder.isEmpty ? '(root)' : folder;
+    final bytes = _folderBytes(items);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+          child: Row(
+            children: [
+              // Back arrow (Android drawable arrow_back_24).
+              IconButton(
+                tooltip: 'Back to folders',
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => setState(() => _openFolder = null),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${items.length} item${items.length == 1 ? '' : 's'}'
+                      '  •  ${_formatSize(bytes)}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? const Center(child: Text('This folder is empty.'))
+              : GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 140,
+                    mainAxisSpacing: 2,
+                    crossAxisSpacing: 2,
+                  ),
+                  scrollCacheExtent: ScrollCacheExtent.pixels(800),
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  itemCount: items.length,
+                  itemBuilder: (context, i) {
+                    final p = items[i];
+                    final isVideo = p['type'] == 'video';
+                    return GestureDetector(
+                      onTap: () {
+                        if (isVideo) return;
+                        PhotoDetailPage.open(
+                          context,
+                          photoId: p['id'] as String,
+                          imageUrl: Uri.parse('$kApiBaseUrl${p['url']}'),
+                        );
+                      },
+                      child: isVideo
+                          ? VideoTile(
+                              photoId: p['id'] as String,
+                              name: p['name'] as String? ?? p['id'] as String,
+                            )
+                          : PhotoTile(
+                              photoId: p['id'] as String,
+                              uri: Uri.parse('$kApiBaseUrl${p['url']}'),
+                              borderRadius: 0,
+                              cacheWidth: 280,
+                            ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget body;
@@ -570,6 +1156,8 @@ class _FoldersPageState extends State<FoldersPage> {
       );
     } else if (_photos == null) {
       body = const Center(child: CircularProgressIndicator());
+    } else if (_openFolder != null) {
+      body = _folderView(context);
     } else {
       // Group by folder ('' = photos directly in the root).
       final byFolder = <String, List<Map<String, dynamic>>>{};
@@ -655,6 +1243,10 @@ class _FoldersPageState extends State<FoldersPage> {
                   crossAxisSpacing: 16,
                 ),
                 itemCount: visibleFolders.length,
+                scrollCacheExtent: ScrollCacheExtent.pixels(600),
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
                 itemBuilder: (context, i) {
                   final entry = visibleFolders[i];
                   final items = entry.value;
@@ -665,33 +1257,41 @@ class _FoldersPageState extends State<FoldersPage> {
                   });
                   final latest = items.first;
                   final label = entry.key.isEmpty ? '(root)' : entry.key;
+                  final bytes = _folderBytes(items);
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: PhotoTile(
-                          photoId: latest['id'] as String,
-                          uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
-                          borderRadius: 24,
+                  return GestureDetector(
+                    onTap: () => setState(() => _openFolder = entry.key),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: PhotoTile(
+                            photoId: latest['id'] as String,
+                            uri: Uri.parse('$kApiBaseUrl${latest['url']}'),
+                            borderRadius: 24,
+                            // Folder cards are up to 260 logical px wide.
+                            cacheWidth: 520,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        '${items.length} item${items.length == 1 ? '' : 's'}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface
-                              .withValues(alpha: 0.6),
+                        const SizedBox(height: 10),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
-                      ),
-                    ],
+                        Text(
+                          '${items.length} item${items.length == 1 ? '' : 's'}'
+                          '  •  ${_formatSize(bytes)}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurface
+                                    .withValues(alpha: 0.6),
+                              ),
+                        ),
+                      ],
+                    ),
                   );
                 },
               ),
@@ -723,6 +1323,11 @@ class CollectionsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // Navigation button colors (from sidebar): dark bg with white text.
+    const navBg = Color(0xFF1E1F24);
+    const navBgSelected = Color(0xFF21232F);
+    const navTextDim = Colors.white70;
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: Padding(
@@ -730,6 +1335,82 @@ class CollectionsPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'omaly wrapped',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Wrapped card - smaller, styled like nav buttons
+            Material(
+              color: navBg,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () {
+                  // TODO: Navigate to wrapped screen
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Your omaly wrapped is ready',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '1284 photos. Let\'s see what they were upto',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: navTextDim,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // see my wrapped button - styled like navigation buttons
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Material(
+                          color: navBgSelected,
+                          borderRadius: BorderRadius.circular(28),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () {
+                              // TODO: Navigate to wrapped screen
+                            },
+                            hoverColor: Colors.white.withValues(alpha: 0.04),
+                            splashColor: Colors.white.withValues(alpha: 0.06),
+                            highlightColor: Colors.white.withValues(
+                              alpha: 0.02,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
+                              child: Text(
+                                'see my wrapped',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
             Text(
               'Collections',
               style: theme.textTheme.headlineMedium?.copyWith(
@@ -825,6 +1506,19 @@ class SettingsPage extends StatelessWidget {
     'About': 'Know more about the application',
   };
 
+  /// Icon per settings row — the Material equivalents of the Android
+  /// drawables each row was specified with (palette_24, fullscreen_24,
+  /// settings_24, backup_24, manage_accounts_24, robot_2_24, info_24).
+  static const Map<String, IconData> _icons = {
+    'Appearance': Icons.palette_outlined,
+    'Media Viewer': Icons.fullscreen_rounded,
+    'General': Icons.settings_outlined,
+    'Backup & restore': Icons.backup_outlined,
+    'Manage Local Models': Icons.manage_accounts_outlined,
+    'Smart Features': Icons.smart_toy_outlined,
+    'About': Icons.info_outline_rounded,
+  };
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -850,6 +1544,7 @@ class SettingsPage extends StatelessWidget {
                 itemBuilder: (context, i) => _SettingsCard(
                   label: _items[i],
                   body: _bodies[_items[i]] ?? '',
+                  icon: _icons[_items[i]],
                   radius: BorderRadius.vertical(
                     top: Radius.circular(i == 0 ? 24 : 6),
                     bottom: Radius.circular(i == _items.length - 1 ? 24 : 6),
@@ -870,11 +1565,15 @@ class _SettingsCard extends StatelessWidget {
   const _SettingsCard({
     required this.label,
     required this.body,
+    this.icon,
     this.radius = BorderRadius.zero,
   });
 
   final String label;
   final String body;
+
+  /// Icon shown inside the leading circle.
+  final IconData? icon;
 
   /// Corner radius — the first card gets a rounder top, the last a rounder
   /// bottom, so the stack reads as one grouped list.
@@ -896,19 +1595,30 @@ class _SettingsCard extends StatelessWidget {
         splashColor: Colors.white.withValues(alpha: 0.06),
         highlightColor: Colors.white.withValues(alpha: 0.02),
         child: SizedBox(
-          height: 109,
+          height: 125,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
             child: Row(
               children: [
-                // Circle on the left of the title and body.
+                // Circle on the left of the title and body. Light mode uses the
+                // light brand colour, dark mode keeps the near-black one.
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 52,
+                  height: 52,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: isDark
+                        ? const Color(0xFF17181E)
+                        : const Color(0xFFF9F8FE),
                     shape: BoxShape.circle,
                   ),
+                  child: icon == null
+                      ? null
+                      : Icon(
+                          icon,
+                          size: 28,
+                          // Glyph contrast follows the circle it sits on.
+                          color: isDark ? Colors.white70 : textColor,
+                        ),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
@@ -919,7 +1629,7 @@ class _SettingsCard extends StatelessWidget {
                       Text(
                         label,
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 17,
                           fontWeight: FontWeight.w700,
                           color: textColor,
                         ),
@@ -930,7 +1640,7 @@ class _SettingsCard extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13,
+                          fontSize: 14,
                           color: textColor.withValues(alpha: 0.7),
                         ),
                       ),

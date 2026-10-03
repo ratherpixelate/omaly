@@ -8,19 +8,18 @@ photo_quality table; repeat calls are a fast SQL read.
     GET /best-shot?group_id=b_9d9a2f55&top_k=2
 
 top_k is an optional override (1 or 2). By default the endpoint is
-adaptive: it returns 2 candidates only when the runner-up scores within
-quality.ADAPTIVE_MARGIN of the winner (nearly as good, hard to call),
-otherwise just the winner.
+adaptive: it returns 2 candidates only when the runner-up is in the
+same blink tier as the winner and scores within quality.ADAPTIVE_MARGIN
+of the winner (nearly as good, hard to call), otherwise just the winner.
 
 Response keeps the frontend contract ({group_id, best_photo_id,
 candidates}) and adds a `scores` breakdown for debugging; extra keys are
 ignored by the Dart model.
 """
-import sqlite3
-
 from fastapi import APIRouter, HTTPException, Query
 
-from ingestion import DB_PATH, quality
+from ingestion import quality
+from .common import db, resolve_path
 
 router = APIRouter()
 
@@ -28,19 +27,21 @@ router = APIRouter()
 @router.get("/best-shot")
 def best_shot_endpoint(group_id: str = Query(..., min_length=1),
                        top_k: int | None = Query(None, ge=1, le=2)):
-    con = sqlite3.connect(DB_PATH)
-    try:
-        rows = con.execute(
+    with db() as con:
+        raw_rows = con.execute(
             "SELECT id, filepath, taken_at, face_cluster_ids FROM photos "
             "WHERE burst_group_id=? ORDER BY taken_at", (group_id,)).fetchall()
-        if not rows:
+        if not raw_rows:
             raise HTTPException(
                 status_code=404,
                 detail=f"no burst group {group_id!r} in the database",
             )
+        rows = [
+            (r["id"], str(resolve_path(r["filepath"]) or r["filepath"]),
+             r["taken_at"], r["face_cluster_ids"])
+            for r in raw_rows
+        ]
         results = quality.rank_group(con, rows)
-    finally:
-        con.close()
 
     scored = [r for r in results if r["score"] is not None]
     if not scored:
@@ -67,3 +68,11 @@ def best_shot_endpoint(group_id: str = Query(..., min_length=1),
         "candidates": [r["photo_id"] for r in scored[:n]],
         "scores": [{k: v for k, v in r.items() if k != "faces"} for r in results],
     }
+
+
+def pick_best(group_id: str):
+    """Compatibility helper for internal callers expecting pick_best()."""
+    try:
+        return best_shot_endpoint(group_id=group_id)
+    except HTTPException:
+        return None
