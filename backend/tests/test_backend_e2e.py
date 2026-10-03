@@ -80,6 +80,28 @@ def test_wrapped_endpoint_real_data():
     assert isinstance(data["narrative"], str)
     assert len(data["narrative"]) > 10
 
+    # New Wrapped schema assertions:
+    assert "year" in data and isinstance(data["year"], int)
+    assert "photos_in_year" in data and isinstance(data["photos_in_year"], list)
+    assert "photos_taken_in_year" in data and isinstance(data["photos_taken_in_year"], list)
+    assert "statistics" in data and isinstance(data["statistics"], dict)
+
+    stats = data["statistics"]
+    assert "total_photos" in stats and isinstance(stats["total_photos"], int)
+    assert "most_photos_taken_in_a_day" in stats
+    if stats["most_photos_taken_in_a_day"]:
+        assert "date" in stats["most_photos_taken_in_a_day"]
+        assert "photo_count" in stats["most_photos_taken_in_a_day"]
+    assert "most_visited_location" in stats
+    assert "most_photos_with_a_person" in stats
+    if stats["most_photos_with_a_person"]:
+        assert "cluster_id" in stats["most_photos_with_a_person"]
+        assert "photo_count" in stats["most_photos_with_a_person"]
+    assert "busiest_month" in stats
+    if stats["busiest_month"]:
+        assert "month" in stats["busiest_month"]
+        assert "photo_count" in stats["busiest_month"]
+
 
 def test_wrapped_fallback_when_ollama_unavailable(monkeypatch):
     """Verify that if Ollama is unreachable, /wrapped still succeeds with a clean narrative."""
