@@ -234,3 +234,4 @@ __pycache__/
 yolov8n.pt
 backend/data/
 EOFbackend/db/*.db
+temp_ui/
