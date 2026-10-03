@@ -5,21 +5,21 @@ class WrappedSlide4 extends StatelessWidget {
     super.key,
     required this.onNext,
     required this.totalPhotos,
-    this.peakDay = 'January 17',
+    this.peakDay,
     this.peakCount,
   });
 
   final VoidCallback onNext;
   final int totalPhotos;
-  final String peakDay;
+  final String? peakDay;
   final int? peakCount;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final peakText = peakCount != null
-        ? 'you took the most pics on $peakDay ($peakCount photos)'
-        : 'you took the most pics on $peakDay';
+    final peakText = (peakDay != null && peakCount != null)
+        ? 'You took the most pics on $peakDay ($peakCount photos)'
+        : 'Every moment captured, preserved 100% on this device.';
 
     return GestureDetector(
       onTap: onNext,

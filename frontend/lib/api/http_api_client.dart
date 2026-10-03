@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../models/best_shot.dart';
+import '../models/burst.dart';
+import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/wrapped.dart';
 import 'api_client.dart';
@@ -48,6 +50,15 @@ class HttpApiClient implements ApiClient {
   }
 
   @override
+  Future<List<BurstGroup>> getBursts() async {
+    final json = await _get('/bursts', timeout: _shortTimeout, what: 'bursts');
+    final bursts = (json['bursts'] as List<dynamic>?) ?? [];
+    return bursts
+        .map((b) => BurstGroup.fromJson(b as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
   Future<WrappedSummary> wrapped() async {
     final json = await _get('/wrapped', timeout: _wrappedTimeout, what: 'wrapped');
     return _decode(WrappedSummary.fromJson, json, 'wrapped');
@@ -64,6 +75,51 @@ class HttpApiClient implements ApiClient {
     } catch (_) {
       // Health is a status dot, never a user-facing error.
       return false;
+    }
+  }
+
+  @override
+  Future<List<PersonCluster>> getPeople() async {
+    final json = await _get('/people', timeout: _shortTimeout, what: 'people');
+    final list = json['people'] as List<dynamic>? ?? [];
+    return list
+        .map((p) => PersonCluster.fromJson(p as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getPersonPhotos(String clusterId) async {
+    final json = await _get(
+      '/people/$clusterId/photos',
+      timeout: _shortTimeout,
+      what: 'person photos',
+    );
+    final list = json['photos'] as List<dynamic>? ?? [];
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<PersonCluster> renamePerson(String clusterId, String newName) async {
+    try {
+      final res = await _client
+          .post(
+            Uri.parse('$baseUrl/people/$clusterId/rename'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'name': newName}),
+          )
+          .timeout(_shortTimeout);
+      if (res.statusCode != 200) {
+        throw ApiException(
+          'Failed to rename person (${res.statusCode}): ${res.body}',
+        );
+      }
+      return PersonCluster.fromJson(
+        jsonDecode(res.body) as Map<String, dynamic>,
+      );
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException('Could not rename person: $e');
     }
   }
 

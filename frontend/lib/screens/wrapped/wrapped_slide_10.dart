@@ -21,11 +21,11 @@ class WrappedSlide10 extends StatelessWidget {
     final photosCount = totalPhotos ??
         (summary.totalPhotos > 0
             ? summary.totalPhotos
-            : (summary.photosInYear.isNotEmpty ? summary.photosInYear.length : 14));
+            : (summary.photosInYear.isNotEmpty ? summary.photosInYear.length : 0));
 
     final mostDay = stats?.mostPhotosTakenInADay != null
         ? '${stats!.mostPhotosTakenInADay!.formattedDate} (${stats.mostPhotosTakenInADay!.photoCount} photos)'
-        : 'January 17, 2017 (9 photos)';
+        : 'No single peak day recorded';
 
     final mostLoc = stats?.mostVisitedLocation != null
         ? stats!.mostVisitedLocation!.name
@@ -41,7 +41,7 @@ class WrappedSlide10 extends StatelessWidget {
 
     final busiestM = stats?.busiestMonth != null
         ? '${stats!.busiestMonth!.formattedMonth} (${stats.busiestMonth!.photoCount} photos)'
-        : 'January 2017 (14 photos)';
+        : 'N/A';
 
     return GestureDetector(
       onTap: onNext,

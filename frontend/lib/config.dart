@@ -1,6 +1,6 @@
 /// Where the FastAPI backend lives. Everything runs on this machine — no
 /// cloud, no external hosts.
-const String kApiBaseUrl = 'http://localhost:8000';
+const String kApiBaseUrl = 'http://127.0.0.1:8000';
 
 /// THE ONE-LINE FLIP.
 ///

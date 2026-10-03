@@ -8,16 +8,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from api import search, best_shot, wrapped, thumbnails
+from api import search, best_shot, wrapped, thumbnails, people
 from ingestion import quality
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm CLIP search, best-shot quality metrics, and Ollama in background threads
+    # Warm CLIP search and best-shot quality metrics in background threads
     threading.Thread(target=search.warmup, daemon=True).start()
     threading.Thread(target=quality.warm, daemon=True).start()
-    threading.Thread(target=wrapped.warmup, daemon=True).start()
     yield
 
 
@@ -49,16 +48,35 @@ _IMAGE_EXTS = _IMAGE_EXTS | _VIDEO_EXTS
 def list_photos():
     if not PHOTOS_DIR.is_dir():
         return {"photos": []}
+
+    meta_by_name = {}
+    try:
+        from api.common import db as get_db
+        with get_db() as con:
+            rows = con.execute("SELECT id, filename, burst_group_id FROM photos").fetchall()
+            for r in rows:
+                meta_by_name[r["filename"]] = {
+                    "db_id": r["id"],
+                    "burst_group_id": r["burst_group_id"],
+                }
+    except Exception:
+        pass
+
     photos = []
     for f in sorted(PHOTOS_DIR.rglob("*")):
         if not f.is_file() or f.suffix.lower() not in _IMAGE_EXTS:
             continue
         rel = f.relative_to(PHOTOS_DIR)
+        meta = meta_by_name.get(f.name, {})
+        db_id = meta.get("db_id")
         photos.append(
             {
                 "id": str(rel),
+                "db_id": db_id,
+                "burst_group_id": meta.get("burst_group_id"),
                 "name": f.name,
                 "url": "/files/" + urllib.parse.quote(str(rel)),
+                "thumbnail_url": f"/thumbnails/{db_id}.jpg" if db_id else None,
                 "size": f.stat().st_size,
                 "modified_at": f.stat().st_mtime,
                 "type": "video" if f.suffix.lower() in _VIDEO_EXTS else "photo",
@@ -68,5 +86,10 @@ def list_photos():
     return {"photos": photos}
 
 
-for r in (search.router, best_shot.router, wrapped.router, thumbnails.router):
+for r in (search.router, best_shot.router, wrapped.router, thumbnails.router, people.router):
     app.include_router(r)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

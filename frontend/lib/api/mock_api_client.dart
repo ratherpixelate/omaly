@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import '../models/best_shot.dart';
+import '../models/burst.dart';
+import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/wrapped.dart';
 import 'api_client.dart';
@@ -107,11 +109,147 @@ class MockApiClient implements ApiClient {
   }
 
   @override
+  Future<List<BurstGroup>> getBursts() async {
+    await Future<void>.delayed(_latency);
+    return [
+      BurstGroup(
+        id: 'b_9d9a2f55',
+        photoCount: 3,
+        bestPhotoId: 'eb43be4277b9a0b6eba91f06a8badb590f71aa2b',
+        candidates: const ['eb43be4277b9a0b6eba91f06a8badb590f71aa2b'],
+        photos: const [
+          BurstPhoto(
+            id: 'eb43be4277b9a0b6eba91f06a8badb590f71aa2b',
+            filename: 'IMG_0960.JPG',
+            name: 'IMG_0960.JPG',
+            url: '/files/IMG_0960.JPG',
+            thumbnailUrl:
+                '/thumbnails/eb43be4277b9a0b6eba91f06a8badb590f71aa2b.jpg',
+            takenAt: '2017-01-17T22:44:38',
+            isBest: true,
+            isCandidate: true,
+            rank: 1,
+            score: 0.9704,
+            blinkTier: 0,
+            nFaces: 10,
+            nClosed: 0,
+            eyesOpenness: 0.9155,
+            sharpness: 1.0,
+          ),
+          BurstPhoto(
+            id: 'ae2ad2da2102f6beb49574d974ee4e448ec65cb9',
+            filename: 'IMG_0959.JPG',
+            name: 'IMG_0959.JPG',
+            url: '/files/IMG_0959.JPG',
+            thumbnailUrl:
+                '/thumbnails/ae2ad2da2102f6beb49574d974ee4e448ec65cb9.jpg',
+            takenAt: '2017-01-17T22:44:35',
+            isBest: false,
+            isCandidate: false,
+            rank: 2,
+            score: 0.4789,
+            blinkTier: 0,
+            nFaces: 10,
+            nClosed: 0,
+            eyesOpenness: 0.9397,
+            sharpness: 0.0,
+          ),
+          BurstPhoto(
+            id: '9d9a2f55c3769f72d4915f02710ea2e8b7ad9a83',
+            filename: 'IMG_0961.JPG',
+            name: 'IMG_0961.JPG',
+            url: '/files/IMG_0961.JPG',
+            thumbnailUrl:
+                '/thumbnails/9d9a2f55c3769f72d4915f02710ea2e8b7ad9a83.jpg',
+            takenAt: '2017-01-17T22:44:44',
+            isBest: false,
+            isCandidate: false,
+            rank: 3,
+            score: 0.5056,
+            blinkTier: 1,
+            nFaces: 9,
+            nClosed: 0,
+            eyesOpenness: 0.9055,
+            sharpness: 0.5772,
+          ),
+        ],
+      ),
+    ];
+  }
+
+  @override
   Future<WrappedSummary> wrapped() async {
     await Future<void>.delayed(_latency);
     return WrappedSummary.fromJson(
       jsonDecode(_wrappedJson) as Map<String, dynamic>,
     );
+  }
+
+  static final List<PersonCluster> _mockPeople = [
+    const PersonCluster(
+      id: 'p1',
+      name: 'Arjun',
+      photoCount: 128,
+      coverPhotoId: 'abc123',
+      thumbnailUrl: '/thumbnails/abc123.jpg',
+    ),
+    const PersonCluster(
+      id: 'p2',
+      name: 'Priya',
+      photoCount: 96,
+      coverPhotoId: 'def456',
+      thumbnailUrl: '/thumbnails/def456.jpg',
+    ),
+    const PersonCluster(
+      id: 'p3',
+      name: 'Neha',
+      photoCount: 54,
+      coverPhotoId: 'ghi012',
+      thumbnailUrl: '/thumbnails/ghi012.jpg',
+    ),
+    const PersonCluster(
+      id: 'p4',
+      name: 'Dad',
+      photoCount: 41,
+      coverPhotoId: 'jkl345',
+      thumbnailUrl: '/thumbnails/jkl345.jpg',
+    ),
+  ];
+
+  @override
+  Future<List<PersonCluster>> getPeople() async {
+    await Future<void>.delayed(_latency);
+    return List.unmodifiable(_mockPeople);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getPersonPhotos(String clusterId) async {
+    await Future<void>.delayed(_latency);
+    return [
+      {
+        'id': 'abc123',
+        'name': 'IMG_0001.JPG',
+        'filename': 'IMG_0001.JPG',
+        'url': '/files/IMG_0001.JPG',
+        'thumbnail_url': '/thumbnails/abc123.jpg',
+        'taken_at': '2026-04-12T14:33:00',
+        'type': 'photo',
+      },
+    ];
+  }
+
+  @override
+  Future<PersonCluster> renamePerson(String clusterId, String newName) async {
+    await Future<void>.delayed(_latency);
+    final idx = _mockPeople.indexWhere((p) => p.id == clusterId);
+    if (idx != -1) {
+      final updated = _mockPeople[idx].copyWith(name: newName);
+      _mockPeople[idx] = updated;
+      return updated;
+    }
+    final created = PersonCluster(id: clusterId, name: newName, photoCount: 0);
+    _mockPeople.add(created);
+    return created;
   }
 
   @override

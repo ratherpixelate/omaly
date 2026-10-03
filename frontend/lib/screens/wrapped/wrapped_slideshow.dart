@@ -9,8 +9,6 @@ import 'wrapped_slide_3.dart';
 import 'wrapped_slide_4.dart';
 import 'wrapped_slide_5.dart';
 import 'wrapped_slide_6.dart';
-import 'wrapped_slide_7.dart';
-import 'wrapped_slide_8.dart';
 import 'wrapped_slide_9.dart';
 import 'wrapped_slide_10.dart';
 import 'wrapped_slide_11.dart';
@@ -34,7 +32,7 @@ class WrappedSlideshow extends StatefulWidget {
 class _WrappedSlideshowState extends State<WrappedSlideshow> {
   final PageController _pageController = PageController();
   int _currentIndex = 0;
-  static const int _totalSlides = 11;
+  static const int _totalSlides = 9;
 
   void _nextPage() {
     if (_currentIndex < _totalSlides - 1) {
@@ -69,7 +67,7 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
         : (widget.summary.photosInYear.isNotEmpty ? widget.summary.photosInYear.length : 14);
 
     final peakDayStat = widget.summary.statistics?.mostPhotosTakenInADay;
-    final peakDay = peakDayStat?.formattedDate ?? 'January 17';
+    final peakDay = peakDayStat?.formattedDate;
     final peakCount = peakDayStat?.photoCount;
 
     return Focus(
@@ -96,7 +94,10 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
               controller: _pageController,
               onPageChanged: (index) => setState(() => _currentIndex = index),
               children: [
-                WrappedSlide1(onNext: _nextPage),
+                WrappedSlide1(
+                  onNext: _nextPage,
+                  photoIds: widget.summary.photosInYear,
+                ),
                 WrappedSlide2(onNext: _nextPage),
                 WrappedSlide3(onNext: _nextPage),
                 WrappedSlide4(
@@ -109,14 +110,6 @@ class _WrappedSlideshowState extends State<WrappedSlideshow> {
                 WrappedSlide6(
                   onNext: _nextPage,
                   people: widget.summary.topPeople,
-                ),
-                WrappedSlide7(
-                  onNext: _nextPage,
-                  locationCount: widget.summary.topLocations.length,
-                ),
-                WrappedSlide8(
-                  onNext: _nextPage,
-                  locations: widget.summary.topLocations,
                 ),
                 WrappedSlide9(onNext: _nextPage),
                 WrappedSlide10(

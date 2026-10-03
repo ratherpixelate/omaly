@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../config.dart';
+import '../../widgets/photo_tile.dart';
+
 class WrappedSlide1 extends StatelessWidget {
-  const WrappedSlide1({super.key, required this.onNext});
+  const WrappedSlide1({
+    super.key,
+    required this.onNext,
+    this.photoIds = const [],
+  });
 
   final VoidCallback onNext;
+  final List<String> photoIds;
 
   @override
   Widget build(BuildContext context) {
@@ -20,26 +28,48 @@ class WrappedSlide1 extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 12),
-                // Preview cards strip extending till the end (20 cards, original width 190)
+                // Preview cards strip extending till the end (20 cards with real photos)
                 SizedBox(
                   height: 320,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 48),
-                    itemCount: 20,
+                    itemCount: photoIds.isNotEmpty ? (photoIds.length < 20 ? 20 : photoIds.length) : 20,
                     separatorBuilder: (context, index) => const SizedBox(width: 24),
                     itemBuilder: (context, index) {
                       final isMiddle = index == 4;
+                      final photoId = photoIds.isNotEmpty
+                          ? photoIds[index % photoIds.length]
+                          : null;
+                      final thumbUri = photoId != null
+                          ? Uri.parse('$kApiBaseUrl/thumbnails/$photoId.jpg')
+                          : null;
+
                       return Container(
                         width: 190,
                         decoration: BoxDecoration(
                           color: const Color(0xFF1E1F24),
                           borderRadius: BorderRadius.circular(32),
                           border: Border.all(
-                            color: isMiddle ? Colors.white : Colors.white24,
+                            color: isMiddle ? const Color(0xFFDCE4F7) : Colors.white24,
                             width: isMiddle ? 3 : 1.5,
                           ),
                         ),
+                        clipBehavior: Clip.antiAlias,
+                        child: photoId != null
+                            ? PhotoTile(
+                                photoId: photoId,
+                                uri: thumbUri,
+                                borderRadius: 0,
+                                cacheWidth: 400,
+                              )
+                            : const Center(
+                                child: Icon(
+                                  Icons.photo_outlined,
+                                  color: Colors.white24,
+                                  size: 40,
+                                ),
+                              ),
                       );
                     },
                   ),

@@ -1,5 +1,7 @@
 import '../config.dart';
 import '../models/best_shot.dart';
+import '../models/burst.dart';
+import '../models/person.dart';
 import '../models/search_result.dart';
 import '../models/wrapped.dart';
 import 'http_api_client.dart';
@@ -17,11 +19,23 @@ abstract class ApiClient {
   /// `GET /best-shot?group_id=<groupId>`
   Future<BestShotResponse> bestShot(String groupId);
 
+  /// `GET /bursts`
+  Future<List<BurstGroup>> getBursts();
+
   /// `GET /wrapped`
   Future<WrappedSummary> wrapped();
 
   /// `GET /health`
   Future<bool> health();
+
+  /// `GET /people`
+  Future<List<PersonCluster>> getPeople();
+
+  /// `GET /people/<clusterId>/photos`
+  Future<List<Map<String, dynamic>>> getPersonPhotos(String clusterId);
+
+  /// `POST /people/<clusterId>/rename`
+  Future<PersonCluster> renamePerson(String clusterId, String newName);
 
   /// Absolute URL for a photo's thumbnail image, or `null` in mock mode
   /// (there is no server to fetch bytes from, so the UI paints a

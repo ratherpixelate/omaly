@@ -185,6 +185,26 @@ def test_best_shot_api():
     assert res_404.status_code == 404
 
 
+def test_list_bursts_api():
+    res = client.get("/bursts")
+    assert res.status_code == 200
+    data = res.json()
+    assert "bursts" in data
+    assert isinstance(data["bursts"], list)
+    assert len(data["bursts"]) >= 1
+    burst = data["bursts"][0]
+    assert burst["group_id"] == "b_9d9a2f55"
+    assert burst["photo_count"] == 3
+    assert "best_photo_id" in burst
+    assert "photos" in burst
+    assert len(burst["photos"]) == 3
+    best_photos = [p for p in burst["photos"] if p["is_best"]]
+    assert len(best_photos) == 1
+    assert best_photos[0]["id"] == burst["best_photo_id"]
+    assert "thumbnail_url" in best_photos[0]
+    assert "score" in best_photos[0]
+
+
 if __name__ == "__main__":
     print("Running test_ear_calculation...")
     test_ear_calculation()
@@ -219,4 +239,6 @@ if __name__ == "__main__":
 
     print("Running test_best_shot_api...")
     test_best_shot_api()
+    print("Running test_list_bursts_api...")
+    test_list_bursts_api()
     print("\nALL TESTS PASSED! \u2714")

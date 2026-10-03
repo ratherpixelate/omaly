@@ -6,16 +6,22 @@ class PersonStat {
     required this.clusterId,
     required this.label,
     required this.photoCount,
+    this.coverPhotoId,
+    this.thumbnailUrl,
   });
 
   final String clusterId;
   final String label;
   final int photoCount;
+  final String? coverPhotoId;
+  final String? thumbnailUrl;
 
   factory PersonStat.fromJson(Map<String, dynamic> json) => PersonStat(
         clusterId: json['cluster_id'] as String,
         label: json['label'] as String,
         photoCount: (json['photo_count'] as num).toInt(),
+        coverPhotoId: json['cover_photo_id'] as String?,
+        thumbnailUrl: json['thumbnail_url'] as String?,
       );
 }
 
@@ -25,18 +31,24 @@ class LocationStat {
     required this.lat,
     required this.lon,
     required this.photoCount,
+    this.coverPhotoId,
+    this.thumbnailUrl,
   });
 
   final String name;
   final double lat;
   final double lon;
   final int photoCount;
+  final String? coverPhotoId;
+  final String? thumbnailUrl;
 
   factory LocationStat.fromJson(Map<String, dynamic> json) => LocationStat(
         name: json['name'] as String,
         lat: (json['lat'] as num).toDouble(),
         lon: (json['lon'] as num).toDouble(),
         photoCount: (json['photo_count'] as num).toInt(),
+        coverPhotoId: json['cover_photo_id'] as String?,
+        thumbnailUrl: json['thumbnail_url'] as String?,
       );
 }
 

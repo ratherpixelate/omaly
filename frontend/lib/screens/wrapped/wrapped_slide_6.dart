@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../config.dart';
 import '../../models/wrapped.dart';
 
 class WrappedSlide6 extends StatelessWidget {
@@ -12,19 +13,24 @@ class WrappedSlide6 extends StatelessWidget {
   final VoidCallback onNext;
   final List<PersonStat> people;
 
+  Widget _avatarFallback(String name) {
+    final initial = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    return Center(
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 40,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final displayPeople = people.isNotEmpty
-        ? [
-            for (final p in people.take(3))
-              (p.label, 'You took ${p.photoCount} pictures together!')
-          ]
-        : const [
-            ('Person 1', 'You took 11 pictures together!'),
-            ('Person 2', 'You took 9 pictures together!'),
-            ('Person 3', 'You took 8 pictures together!'),
-          ];
+    final topPeople = people.take(3).toList();
 
     return GestureDetector(
       onTap: onNext,
@@ -36,63 +42,96 @@ class WrappedSlide6 extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (var i = 0; i < displayPeople.length; i++) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 64,
-                            child: Text(
-                              '${i + 1}.',
-                              textAlign: TextAlign.right,
-                              style: theme.textTheme.displayMedium?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
+                if (topPeople.isNotEmpty)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < topPeople.length; i++) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 64,
+                              child: Text(
+                                '${i + 1}.',
+                                textAlign: TextAlign.right,
+                                style: theme.textTheme.displayMedium?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 32),
-                          Container(
-                            width: 110,
-                            height: 110,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1E1F24),
-                              borderRadius: BorderRadius.circular(28),
-                              border: Border.all(color: Colors.white24, width: 2),
+                            const SizedBox(width: 32),
+                            Container(
+                              width: 110,
+                              height: 110,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E1F24),
+                                borderRadius: BorderRadius.circular(28),
+                                border: Border.all(color: Colors.white24, width: 2),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: topPeople[i].thumbnailUrl != null
+                                  ? Image.network(
+                                      '$kApiBaseUrl${topPeople[i].thumbnailUrl}',
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, _, _) => _avatarFallback(topPeople[i].label),
+                                    )
+                                  : _avatarFallback(topPeople[i].label),
                             ),
-                          ),
-                          const SizedBox(width: 40),
-                          SizedBox(
-                            width: 340,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  displayPeople[i].$1,
-                                  style: theme.textTheme.headlineMedium?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
+                            const SizedBox(width: 40),
+                            SizedBox(
+                              width: 340,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    topPeople[i].label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.headlineMedium?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  displayPeople[i].$2,
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    color: Colors.white70,
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'You took ${topPeople[i].photoCount} pictures together!',
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      color: Colors.white70,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      if (i < displayPeople.length - 1) const SizedBox(height: 40),
+                          ],
+                        ),
+                        if (i < topPeople.length - 1) const SizedBox(height: 40),
+                      ],
                     ],
-                  ],
-                ),
+                  )
+                else
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.people_outline_rounded, size: 72, color: Colors.white38),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Solo Memories',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No recurring face clusters detected in this year.',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 64),
                 Text(
                   'click anywhere to proceed',

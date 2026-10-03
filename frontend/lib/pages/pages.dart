@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -8,9 +9,13 @@ import 'package:http/http.dart' as http;
 
 import '../api/api_client.dart';
 import '../config.dart';
+import '../models/burst.dart';
+import '../models/person.dart';
 import '../screens/wrapped_screen.dart';
 import '../widgets/photo_tile.dart';
 import '../widgets/video_player_view.dart';
+import 'burst_detail_page.dart';
+import 'person_detail_page.dart';
 import 'photo_detail_page.dart';
 
 /// Gallery — the default landing page.
@@ -39,6 +44,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
+  Timer? _debounceTimer;
 
   List<Map<String, dynamic>>? _photos;
   Object? _error;
@@ -74,6 +80,15 @@ class _GalleryPageState extends State<GalleryPage> {
   String get _filterSignature =>
       '$_typeFilter|$_yearFilter|$_sourceFilter|$_newestFirst|$_orderBy|${_photos?.length}';
 
+  /// Key used by AnimatedSwitcher to smoothly transition when filtering or searching.
+  String get _viewSignature {
+    final q = _query.trim();
+    if (q.isNotEmpty) {
+      return 'search|$q|$_searchSeq|${_searchResults?.length}|$_newestFirst|$_searching';
+    }
+    return _filterSignature;
+  }
+
   /// True when any filter pill differs from its default.
   bool get _hasActiveFilter =>
       _typeFilter != 'all' || _yearFilter != null || _sourceFilter != null;
@@ -86,6 +101,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -119,21 +135,51 @@ class _GalleryPageState extends State<GalleryPage> {
     try {
       final uri = Uri.parse('$kApiBaseUrl/search')
           .replace(queryParameters: {'q': q, 'top_k': '40'});
+      debugPrint('[omaly search] Requesting $uri');
       final res = await http.get(uri).timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       if (!mounted || seq != _searchSeq) return;
+      final results = (body['results'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+      debugPrint('[omaly search] Found ${results.length} results for "$q"');
       setState(() {
-        _searchResults = (body['results'] as List<dynamic>)
-            .cast<Map<String, dynamic>>();
+        _searchResults = results;
         _searching = false;
       });
     } catch (e) {
+      debugPrint('[omaly search] Error: $e');
       if (!mounted || seq != _searchSeq) return;
       setState(() {
         _searchError = e;
         _searching = false;
       });
+    }
+  }
+
+  Future<void> _openBurstForPhoto(String burstGroupId) async {
+    try {
+      final client = createApiClient();
+      final bursts = await client.getBursts();
+      final target = bursts.firstWhere(
+        (b) => b.id == burstGroupId,
+        orElse: () => bursts.first,
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BurstDetailPage(
+            burst: target,
+            api: client,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open burst: $e')),
+      );
     }
   }
 
@@ -159,8 +205,29 @@ class _GalleryPageState extends State<GalleryPage> {
                           controller: _searchController,
                           focusNode: _searchFocus,
                           onChanged: (v) {
+                            _debounceTimer?.cancel();
                             setState(() => _query = v);
-                            if (v.trim().isEmpty) {
+                            final q = v.trim();
+                            if (q.isEmpty) {
+                              _searchSeq++;
+                              setState(() {
+                                _searchResults = null;
+                                _searchError = null;
+                                _searching = false;
+                              });
+                            } else {
+                              _debounceTimer = Timer(
+                                const Duration(milliseconds: 350),
+                                () => _runSearch(q),
+                              );
+                            }
+                          },
+                          onSubmitted: (v) {
+                            _debounceTimer?.cancel();
+                            final q = v.trim();
+                            if (q.isNotEmpty) {
+                              _runSearch(q);
+                            } else {
                               _searchSeq++;
                               setState(() {
                                 _searchResults = null;
@@ -168,10 +235,6 @@ class _GalleryPageState extends State<GalleryPage> {
                                 _searching = false;
                               });
                             }
-                          },
-                          onSubmitted: (v) {
-                            final q = v.trim();
-                            if (q.isNotEmpty) _runSearch(q);
                           },
                           textInputAction: TextInputAction.search,
                           style: const TextStyle(fontSize: 18),
@@ -189,6 +252,46 @@ class _GalleryPageState extends State<GalleryPage> {
                               padding: EdgeInsets.only(left: _kSearchIconInset),
                               child: Icon(Icons.search_rounded, size: 32),
                             ),
+                            suffixIconConstraints: const BoxConstraints.tightFor(
+                              width: 48,
+                              height: _kSearchHeight,
+                            ),
+                            suffixIcon: _searching
+                                ? const Padding(
+                                    padding: EdgeInsets.only(right: 14),
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : (_query.isNotEmpty
+                                    ? Padding(
+                                        padding: const EdgeInsets.only(right: 6),
+                                        child: IconButton(
+                                          icon: const Icon(
+                                            Icons.close_rounded,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Clear search',
+                                          onPressed: () {
+                                            _debounceTimer?.cancel();
+                                            _searchController.clear();
+                                            _searchSeq++;
+                                            setState(() {
+                                              _query = '';
+                                              _searchResults = null;
+                                              _searchError = null;
+                                              _searching = false;
+                                            });
+                                          },
+                                        ),
+                                      )
+                                    : null),
                             isDense: true,
                             filled: true,
                             fillColor: Theme.of(context)
@@ -244,7 +347,7 @@ class _GalleryPageState extends State<GalleryPage> {
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 300),
                         child: KeyedSubtree(
-                          key: ValueKey(_filterSignature),
+                          key: ValueKey(_viewSignature),
                           child: _grid(context),
                         ),
                       ),
@@ -555,6 +658,11 @@ class _GalleryPageState extends State<GalleryPage> {
                 selected: _typeFilter == 'video',
                 onTap: () => setState(() => _typeFilter = 'video'),
               ),
+              pill(
+                label: 'Bursts',
+                selected: _typeFilter == 'burst',
+                onTap: () => setState(() => _typeFilter = 'burst'),
+              ),
             ]),
             sectionLabel('Time'),
             pillRow([
@@ -604,6 +712,10 @@ class _GalleryPageState extends State<GalleryPage> {
         _yearFilter == null && _sourceFilter == null
             ? 'No photos found.'
             : 'No photos match the selected filters.',
+      'burst' =>
+        _yearFilter == null && _sourceFilter == null
+            ? 'No burst photos found.'
+            : 'No burst photos match the selected filters.',
       _ => 'No matches for the selected filters.',
     };
   }
@@ -645,6 +757,16 @@ class _GalleryPageState extends State<GalleryPage> {
       meta += size < 1024 * 1024
           ? '${(size / 1024).toStringAsFixed(0)} KB'
           : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    final burstGroupId = p['burst_group_id'] as String?;
+    if (burstGroupId != null) {
+      if (meta.isNotEmpty) meta += '  •  ';
+      meta += 'Burst: $burstGroupId';
+    }
+    final matchedPerson = p['matched_person'] as String?;
+    if (matchedPerson != null) {
+      if (meta.isNotEmpty) meta += '  •  ';
+      meta += 'Person: $matchedPerson';
     }
 
     return Container(
@@ -724,6 +846,20 @@ class _GalleryPageState extends State<GalleryPage> {
                 ),
               ),
             ),
+          if (burstGroupId != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: FilledButton.icon(
+                onPressed: () => _openBurstForPhoto(burstGroupId),
+                icon: const Icon(Icons.burst_mode_rounded, size: 16),
+                label: const Text('View Burst & Best Shot'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF6C5CE7),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -775,6 +911,7 @@ class _GalleryPageState extends State<GalleryPage> {
           Positioned(
             top: 12,
             left: 12,
+            right: 12,
             child: Row(
               children: [
                 IconButton(
@@ -789,13 +926,31 @@ class _GalleryPageState extends State<GalleryPage> {
                   }),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  p['name'] as String? ?? p['id'] as String,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Text(
+                    p['matched_person'] != null
+                        ? '${p['name'] ?? p['id']}  •  ${p['matched_person']}'
+                        : (p['name'] as String? ?? p['id'] as String),
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
+                if (p['burst_group_id'] != null) ...[
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: () => _openBurstForPhoto(p['burst_group_id'] as String),
+                    icon: const Icon(Icons.burst_mode_rounded, size: 16),
+                    label: const Text('View Burst & Best Shot'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C5CE7),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -807,6 +962,8 @@ class _GalleryPageState extends State<GalleryPage> {
   /// Wrap a grid tile so hover updates the preview panel and a click opens the
   /// focus view.
   Widget _tile(Map<String, dynamic> p, Widget child, {Uri? uri}) {
+    final hasBurst = p['burst_group_id'] != null;
+    final matchedPerson = p['matched_person'] as String?;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = p),
       child: GestureDetector(
@@ -815,32 +972,161 @@ class _GalleryPageState extends State<GalleryPage> {
           _hovered = null;
           _panelOpen = false;
         }),
-        child: child,
+        child: (hasBurst || matchedPerson != null)
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  child,
+                  if (hasBurst)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.burst_mode_rounded,
+                              color: Colors.white,
+                              size: 11,
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              'Burst',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (matchedPerson != null)
+                    Positioned(
+                      bottom: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.person_rounded,
+                              color: Colors.white,
+                              size: 11,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              matchedPerson,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              )
+            : child,
       ),
     );
   }
 
   Widget _searchGrid(BuildContext context, String q) {
-    if (_searching) return const Center(child: CircularProgressIndicator());
-    if (_searchError != null) {
+    if (_searchError != null && _searchResults == null) {
       return Center(
-        child: Text(
-          'Search failed.\nIs the backend running?\n$_searchError',
-          textAlign: TextAlign.center,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 48,
+                color: Colors.redAccent,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Search failed.\n$_searchError',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
         ),
       );
     }
+
     final results = _searchResults;
-    if (results == null || results.isEmpty) {
+    if (results == null) {
+      // While debouncing or fetching initial search results, keep showing the
+      // regular gallery with smooth dimmed opacity so the page never blanks out.
+      return Stack(
+        children: [
+          AnimatedOpacity(
+            opacity: _searching ? 0.45 : 1.0,
+            duration: const Duration(milliseconds: 200),
+            child: _regularGrid(context),
+          ),
+          if (_searching)
+            const Positioned(
+              top: 0,
+              left: 24,
+              right: 24,
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+        ],
+      );
+    }
+
+    if (results.isEmpty) {
       return Center(
-        child: Text(
-          results == null
-              ? 'Press enter to search for "$q".'
-              : 'No photos found for "$q".',
-          textAlign: TextAlign.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 56,
+              color: Theme.of(context).colorScheme.onSurface.withValues(
+                    alpha: 0.3,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No photos found for "$q"',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Try searching for objects, scenes, or activities\n(e.g., "nature", "friends", "beach")',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withValues(
+                          alpha: 0.5,
+                        ),
+                  ),
+            ),
+          ],
         ),
       );
     }
+
     // Honour the timeline direction pill using each result's taken_at date.
     final ordered = results.toList()
       ..sort((a, b) {
@@ -851,15 +1137,14 @@ class _GalleryPageState extends State<GalleryPage> {
         if (bTs == null) return -1;
         return _newestFirst ? bTs.compareTo(aTs) : aTs.compareTo(bTs);
       });
-    return GridView.builder(
+
+    final searchView = GridView.builder(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 2),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 140,
         mainAxisSpacing: 2,
         crossAxisSpacing: 2,
       ),
-      // Build tiles a bit beyond the viewport so fast scrolling lands on
-      // already-decoded images instead of shimmer placeholders.
       scrollCacheExtent: ScrollCacheExtent.pixels(800),
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -868,11 +1153,16 @@ class _GalleryPageState extends State<GalleryPage> {
       itemBuilder: (context, i) {
         final r = ordered[i];
         final thumb = r['thumbnail_url'] as String?;
+        final originalUrl = r['url'] as String?;
         final uri = thumb == null ? null : Uri.parse('$kApiBaseUrl$thumb');
         final item = {
-          'id': r['id'],
-          'name': r['id'],
-          'url': thumb,
+          'id': r['id'] as String,
+          'name': (r['filename'] as String?) ??
+              (r['name'] as String?) ??
+              (r['id'] as String),
+          'url': originalUrl ?? thumb,
+          'burst_group_id': r['burst_group_id'],
+          'matched_person': r['matched_person'],
           'type': 'photo',
         };
         return _tile(
@@ -887,15 +1177,28 @@ class _GalleryPageState extends State<GalleryPage> {
         );
       },
     );
+
+    if (_searching) {
+      return Stack(
+        children: [
+          AnimatedOpacity(
+            opacity: 0.5,
+            duration: const Duration(milliseconds: 150),
+            child: searchView,
+          ),
+          const Positioned(
+            top: 0,
+            left: 24,
+            right: 24,
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+        ],
+      );
+    }
+    return searchView;
   }
 
-  Widget _grid(BuildContext context) {
-    final q = _query.trim();
-
-    // When a query is active, the grid shows /search results (object
-    // identification via CLIP); otherwise the local /photos listing.
-    if (q.isNotEmpty) return _searchGrid(context, q);
-
+  Widget _regularGrid(BuildContext context) {
     final photos = _photos;
     final visible = photos?.toList();
 
@@ -910,7 +1213,11 @@ class _GalleryPageState extends State<GalleryPage> {
 
     // Apply the Type / Time / Source filters.
     final filtered = visible?.where((p) {
-      if (_typeFilter != 'all' && p['type'] != _typeFilter) return false;
+      if (_typeFilter == 'burst') {
+        if (p['burst_group_id'] == null) return false;
+      } else if (_typeFilter != 'all' && p['type'] != _typeFilter) {
+        return false;
+      }
       if (_yearFilter != null) {
         final ts = (p['modified_at'] as num?)?.toDouble();
         if (ts == null) return false;
@@ -930,7 +1237,7 @@ class _GalleryPageState extends State<GalleryPage> {
         ),
       ),
       null => const Center(child: CircularProgressIndicator()),
-      [] => Center(child: Text(_emptyMessage(q))),
+      [] => Center(child: Text(_emptyMessage(_query.trim()))),
       final photos => GridView.builder(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 2),
         gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -967,6 +1274,12 @@ class _GalleryPageState extends State<GalleryPage> {
         },
       ),
     };
+  }
+
+  Widget _grid(BuildContext context) {
+    final q = _query.trim();
+    if (q.isNotEmpty) return _searchGrid(context, q);
+    return _regularGrid(context);
   }
 }
 
@@ -1310,16 +1623,166 @@ class _FoldersPageState extends State<FoldersPage> {
   }
 }
 
-/// Collections — face clusters as a horizontal strip of circles.
-///
-/// Temporary: the circles are placeholders until the backend's face-grouping
-/// endpoint is wired in. The strip never wraps; it scrolls horizontally, and
-/// Shift + mouse wheel scrolls it too (Flutter's default desktop behaviour).
-class CollectionsPage extends StatelessWidget {
-  const CollectionsPage({super.key});
+/// Collections — face clusters as an interactive horizontal strip of circular tiles,
+/// plus the Omaly Wrapped recap card.
+class CollectionsPage extends StatefulWidget {
+  const CollectionsPage({super.key, this.api});
 
-  // TODO: replace with the backend's face-grouping response.
-  static const List<(String, int)> _people = [];
+  final ApiClient? api;
+
+  @override
+  State<CollectionsPage> createState() => _CollectionsPageState();
+}
+
+class _CollectionsPageState extends State<CollectionsPage> {
+  late final ApiClient _api = widget.api ?? createApiClient();
+  List<PersonCluster> _people = [];
+  List<BurstGroup> _bursts = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final people = await _api.getPeople();
+      List<BurstGroup> bursts = [];
+      try {
+        bursts = await _api.getBursts();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _people = people;
+        _bursts = bursts;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  void _openBurstDetail(BurstGroup burst) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BurstDetailPage(burst: burst, api: _api),
+      ),
+    );
+  }
+
+  Future<void> _renamePerson(PersonCluster person) async {
+    final controller = TextEditingController(text: person.name);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1F24),
+        title: const Text(
+          'Rename Person',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Enter name',
+            hintStyle: const TextStyle(color: Colors.white38),
+            filled: true,
+            fillColor: const Color(0xFF2A2B32),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          onSubmitted: (val) => Navigator.of(context).pop(val.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF6C5CE7),
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (newName != null && newName.isNotEmpty && newName != person.name) {
+      final oldPeople = List<PersonCluster>.from(_people);
+      setState(() {
+        _people = [
+          for (final p in _people)
+            if (p.id == person.id) p.copyWith(name: newName) else p,
+        ];
+      });
+      try {
+        final updated = await _api.renamePerson(person.id, newName);
+        if (!mounted) return;
+        setState(() {
+          _people = [
+            for (final p in _people)
+              if (p.id == updated.id)
+                p.copyWith(
+                  name: updated.name,
+                  photoCount: updated.photoCount,
+                  coverPhotoId: updated.coverPhotoId ?? p.coverPhotoId,
+                  thumbnailUrl: updated.thumbnailUrl ?? p.thumbnailUrl,
+                )
+              else
+                p,
+          ];
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _people = oldPeople);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to rename: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openPersonDetail(PersonCluster person) async {
+    final updated = await Navigator.push<PersonCluster>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PersonDetailPage(person: person, api: _api),
+      ),
+    );
+    if (updated != null && mounted) {
+      setState(() {
+        _people = [
+          for (final p in _people)
+            if (p.id == updated.id)
+              p.copyWith(
+                name: updated.name,
+                photoCount: updated.photoCount,
+                coverPhotoId: updated.coverPhotoId ?? p.coverPhotoId,
+                thumbnailUrl: updated.thumbnailUrl ?? p.thumbnailUrl,
+              )
+            else
+              p,
+        ];
+      });
+    }
+  }
 
   void _openWrapped(BuildContext context) {
     Navigator.push(
@@ -1329,7 +1792,21 @@ class CollectionsPage extends StatelessWidget {
           appBar: AppBar(
             title: const Text('omaly wrapped'),
           ),
-          body: WrappedScreen(api: createApiClient()),
+          body: WrappedScreen(api: _api),
+        ),
+      ),
+    );
+  }
+
+  Widget _avatarPlaceholder(String name) {
+    final initial = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    return Center(
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 32,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -1345,7 +1822,7 @@ class CollectionsPage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(32, 48, 32, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1357,7 +1834,7 @@ class CollectionsPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            // Wrapped card - bigger height, rectangular & squared (radius 16), text-width vibrant button (radius 12)
+            // Wrapped card
             SizedBox(
               width: 520,
               child: Material(
@@ -1428,69 +1905,363 @@ class CollectionsPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 32),
-            Text(
-              'Collections',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              height: 160,
-              child: _people.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Face clusters will appear here once the backend\n'
-                        'endpoint is ready.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.6,
-                          ),
-                        ),
+            const SizedBox(height: 36),
+            Row(
+              children: [
+                Text(
+                  'People',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                if (!_loading && _people.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1F24),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${_people.length}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w700,
                       ),
-                    )
-                  : ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _people.length,
-                      separatorBuilder: (_, i) => const SizedBox(width: 24),
-                      itemBuilder: (context, i) {
-                        final (name, count) = _people[i];
-                        return Column(
-                          children: [
-                            Container(
-                              width: 96,
-                              height: 96,
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.primaryContainer,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.person_rounded,
-                                size: 48,
-                                color: theme.colorScheme.onPrimaryContainer,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              name,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '$count items',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.6,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 172,
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? Center(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Could not load people.\n$_error',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                                 ),
                               ),
+                              const SizedBox(width: 16),
+                              FilledButton(
+                                onPressed: _load,
+                                child: const Text('Try again'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : _people.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No face clusters detected yet.',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: 0.6,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: _people.length,
+                              separatorBuilder: (_, _) => const SizedBox(width: 24),
+                              itemBuilder: (context, i) {
+                                final person = _people[i];
+                                final thumbUri = person.thumbnailUrl != null
+                                    ? Uri.parse('$kApiBaseUrl${person.thumbnailUrl}')
+                                    : null;
+                                return InkWell(
+                                  onTap: () => _openPersonDetail(person),
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 4,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 96,
+                                          height: 96,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: const Color(0xFF1E1F24),
+                                            border: Border.all(
+                                              color: Colors.white24,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: ClipOval(
+                                            child: thumbUri != null
+                                                ? Image.network(
+                                                    thumbUri.toString(),
+                                                    width: 96,
+                                                    height: 96,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, _, _) =>
+                                                        _avatarPlaceholder(person.name),
+                                                  )
+                                                : _avatarPlaceholder(person.name),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        SizedBox(
+                                          width: 104,
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  person.name,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.center,
+                                                  style: theme.textTheme.titleSmall?.copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              InkWell(
+                                                onTap: () => _renamePerson(person),
+                                                borderRadius: BorderRadius.circular(8),
+                                                child: const Padding(
+                                                  padding: EdgeInsets.all(2),
+                                                  child: Icon(
+                                                    Icons.edit_outlined,
+                                                    size: 13,
+                                                    color: Colors.white54,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '${person.photoCount} photos',
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: theme.colorScheme.onSurface.withValues(
+                                              alpha: 0.6,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
-                          ],
-                        );
-                      },
+            ),
+            const SizedBox(height: 36),
+            Row(
+              children: [
+                Text(
+                  'Bursts & Best Shots',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                if (!_loading && _bursts.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1F24),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: Text(
+                      '${_bursts.length} ${_bursts.length == 1 ? "group" : "groups"}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Near-duplicate bursts automatically ranked by eye openness and face sharpness.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 220,
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _bursts.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No burst groups detected yet.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _bursts.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 20),
+                          itemBuilder: (context, i) {
+                            final burst = _bursts[i];
+                            final bestPhoto = burst.bestPhoto;
+                            final photoUri = bestPhoto?.url != null
+                                ? Uri.parse('$kApiBaseUrl${bestPhoto!.url}')
+                                : (bestPhoto?.thumbnailUrl != null
+                                    ? Uri.parse('$kApiBaseUrl${bestPhoto!.thumbnailUrl}')
+                                    : null);
+
+                            return InkWell(
+                              onTap: () => _openBurstDetail(burst),
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                width: 220,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E1F24),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: Colors.white12,
+                                    width: 1,
+                                  ),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          PhotoTile(
+                                            photoId: burst.bestPhotoId,
+                                            uri: photoUri,
+                                            borderRadius: 0,
+                                            cacheWidth: 600,
+                                          ),
+                                          Positioned(
+                                            top: 10,
+                                            left: 10,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 9,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFDCE4F7),
+                                                borderRadius: BorderRadius.circular(8),
+                                                boxShadow: const [
+                                                  BoxShadow(
+                                                    color: Colors.black26,
+                                                    blurRadius: 6,
+                                                    offset: Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.star_rounded,
+                                                    color: Color(0xFF1A1C2E),
+                                                    size: 13,
+                                                  ),
+                                                  SizedBox(width: 4),
+                                                  Text(
+                                                    'Best Shot',
+                                                    style: TextStyle(
+                                                      color: Color(0xFF1A1C2E),
+                                                      fontWeight: FontWeight.w800,
+                                                      fontSize: 10,
+                                                      letterSpacing: 0.3,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            bottom: 10,
+                                            right: 10,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(alpha: 0.75),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(
+                                                    Icons.burst_mode_rounded,
+                                                    color: Colors.white70,
+                                                    size: 12,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    '${burst.photoCount} shots',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.w700,
+                                                      fontSize: 10,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Burst ${burst.id}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            bestPhoto?.score != null
+                                                ? '${(bestPhoto!.score! * 100).toInt()}% quality score'
+                                                : '${burst.photoCount} burst frames',
+                                            style: TextStyle(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.6,
+                                              ),
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
             ),
           ],
         ),

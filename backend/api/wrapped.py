@@ -1,16 +1,13 @@
-"""GET /wrapped -- Spotify-Wrapped-style annual recap of people, places, pets, and best shots.
+"""GET /wrapped -- Spotify-Wrapped-style annual recap of people, places, and statistics.
 
 Aggregates real statistics from SQLite:
 - Year & photos taken in that year
-- Top 3 persons
-- Most visited places (if location data is available)
+- Top 3 persons with cover photo thumbnails
+- Most visited places (if location data is available) with cover thumbnails
 - Statistics object: total photos, most photos taken in a day, most visited location,
   most photos with a person, and busiest month.
-- 2-3 sentence narrative via local Ollama (phi3:mini) with deterministic fallback.
+- Deterministic, fast recap narrative generated on-device with zero external dependencies.
 """
-import json
-import os
-import urllib.request
 from datetime import datetime
 from fastapi import APIRouter
 from .common import db
@@ -18,25 +15,12 @@ from .best_shot import pick_best
 
 router = APIRouter()
 
-OLLAMA_URL = os.getenv("OMALY_OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.getenv("OMALY_OLLAMA_MODEL", "phi3:mini")
-OLLAMA_TIMEOUT_S = 18.0
 
-_cached_narrative = None
-_cached_year = None
-
-
-def _clean_narrative(text: str) -> str:
-    """Trim markdown and ensure narrative cleanly terminates at punctuation."""
-    if not text:
-        return ""
-    text = text.strip('"\'*# \n')
-    last_punct = max(text.rfind('.'), text.rfind('!'))
-    if last_punct > 25:
-        text = text[:last_punct + 1]
-    elif text and not text.endswith(('.', '!')):
-        text += '.'
-    return text
+def _format_person_name(cluster_id: str, label: str | None) -> str:
+    if label and label.strip():
+        return label.strip()
+    clean_num = cluster_id.replace("p", "").strip()
+    return f"Person {clean_num}" if clean_num.isdigit() else f"Person {cluster_id}"
 
 
 def _compute_wrapped_data(c, year: int | None = None) -> dict:
@@ -58,41 +42,73 @@ def _compute_wrapped_data(c, year: int | None = None) -> dict:
         (year_prefix,)
     ).fetchall()
     photos_in_year = [r[0] for r in year_photos]
-    total_in_year = len(photos_in_year)
 
     # Total photos fallback if no date tags match
-    total_photos = total_in_year if total_in_year > 0 else c.execute("SELECT COUNT(*) FROM photos").fetchone()[0]
+    total_in_year = len(photos_in_year)
+    total_db_photos = c.execute("SELECT COUNT(*) FROM photos").fetchone()[0]
+    total_photos = total_in_year if total_in_year > 0 else total_db_photos
 
-    # 3. Top 3 people
+    if not photos_in_year:
+        all_photos = c.execute("SELECT id FROM photos ORDER BY taken_at ASC, id ASC LIMIT 50").fetchall()
+        photos_in_year = [r[0] for r in all_photos]
+
+    # 3. Top 3 people with cover thumbnails
     raw_people = c.execute(
         "SELECT cluster_id, label, photo_count FROM face_clusters "
-        "WHERE photo_count >= 2 ORDER BY photo_count DESC LIMIT 3"
+        "WHERE photo_count >= 1 ORDER BY photo_count DESC, cluster_id ASC LIMIT 3"
     ).fetchall()
-    top_people = [
-        {
-            "cluster_id": r["cluster_id"],
-            "label": r["label"] or f"Person {r['cluster_id'].replace('p', '')}",
-            "photo_count": int(r["photo_count"]),
-        }
-        for r in raw_people
-    ]
+    top_people = []
+    for r in raw_people:
+        cid = r["cluster_id"]
+        label = _format_person_name(cid, r["label"])
+        count = int(r["photo_count"])
 
-    # 4. Most visited places (top locations)
+        # Fetch representative photo for this person
+        photo_row = c.execute(
+            "SELECT id FROM photos WHERE face_cluster_ids LIKE ? ORDER BY taken_at ASC, id ASC LIMIT 1",
+            (f'%"{cid}"%',),
+        ).fetchone()
+        cover_id = photo_row["id"] if photo_row else None
+        thumb_url = f"/thumbnails/{cover_id}.jpg" if cover_id else None
+
+        top_people.append({
+            "cluster_id": cid,
+            "label": label,
+            "photo_count": count,
+            "cover_photo_id": cover_id,
+            "thumbnail_url": thumb_url,
+        })
+
+    # 4. Most visited places (top locations) with cover thumbnails
     raw_locs = c.execute(
         "SELECT ROUND(latitude, 2) AS lat, ROUND(longitude, 2) AS lon, "
         "COUNT(*) AS photo_count FROM photos "
         "WHERE latitude IS NOT NULL AND longitude IS NOT NULL "
         "GROUP BY lat, lon ORDER BY photo_count DESC LIMIT 3"
     ).fetchall()
-    top_locations = [
-        {
-            "name": f"{float(r['lat']):.2f}, {float(r['lon']):.2f}",
-            "lat": float(r["lat"]),
-            "lon": float(r["lon"]),
-            "photo_count": int(r["photo_count"]),
-        }
-        for r in raw_locs
-    ]
+    top_locations = []
+    for r in raw_locs:
+        lat = float(r["lat"])
+        lon = float(r["lon"])
+        count = int(r["photo_count"])
+
+        # Fetch representative photo taken at this location
+        loc_row = c.execute(
+            "SELECT id FROM photos "
+            "WHERE ROUND(latitude, 2) = ? AND ROUND(longitude, 2) = ? LIMIT 1",
+            (lat, lon)
+        ).fetchone()
+        loc_photo_id = loc_row["id"] if loc_row else None
+        loc_thumb = f"/thumbnails/{loc_photo_id}.jpg" if loc_photo_id else None
+
+        top_locations.append({
+            "name": f"{lat:.2f}, {lon:.2f}",
+            "lat": lat,
+            "lon": lon,
+            "photo_count": count,
+            "cover_photo_id": loc_photo_id,
+            "thumbnail_url": loc_thumb,
+        })
 
     # 5. Statistics:
     # - most photos taken in a day
@@ -176,110 +192,21 @@ def _compute_wrapped_data(c, year: int | None = None) -> dict:
 
 
 def warmup():
-    """Background task to pre-load Ollama model and pre-generate the narrative."""
-    global _cached_narrative, _cached_year
-    try:
-        with db() as c:
-            data = _compute_wrapped_data(c)
-
-        year = data["year"]
-        total = data["total_photos"]
-        stats = data["statistics"]
-        top_people = data["top_people"]
-        pets_detected = data["pets_detected"]
-
-        people_names = ", ".join(f"{p['label']} ({p['photo_count']} photos)" for p in top_people) if top_people else "None recorded"
-        day_str = f"{stats['most_photos_taken_in_a_day']['formatted_date']} ({stats['most_photos_taken_in_a_day']['count']} photos)" if stats['most_photos_taken_in_a_day'] else "N/A"
-        month_str = f"{stats['busiest_month']['formatted_month']} ({stats['busiest_month']['count']} photos)" if stats['busiest_month'] else "N/A"
-
-        prompt = (
-            f"You are writing a short, exciting Spotify-Wrapped-style photo recap for {year}. "
-            "In exactly two friendly, complete sentences, summarize these statistics (no markdown, no bullet points):\n"
-            f"- Total photos: {total}\n"
-            f"- Busiest day: {day_str}\n"
-            f"- Busiest month: {month_str}\n"
-            f"- Top people: {people_names}\n"
-            f"- Pets detected: {'Yes' if pets_detected else 'No'}\n"
-            "Recap:"
-        )
-
-        req = urllib.request.Request(
-            OLLAMA_URL,
-            data=json.dumps({
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "keep_alive": -1,
-                "options": {"temperature": 0.3, "num_predict": 75}
-            }).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            resp_data = json.loads(resp.read().decode("utf-8"))
-            nar = _clean_narrative(resp_data.get("response", ""))
-            if nar and len(nar) > 20:
-                _cached_narrative = nar
-                _cached_year = year
-                print(f"[wrapped] Ollama narrative pre-generated: {_cached_narrative}")
-    except Exception as e:
-        print(f"[wrapped] Ollama warmup note: {e}")
+    """No-op warmup for backward compatibility (Ollama is decoupled)."""
+    pass
 
 
 def _generate_narrative(year: int, total_photos: int, stats: dict, top_people: list[dict],
                         top_locations: list[dict], pets_detected: bool) -> str:
-    global _cached_narrative, _cached_year
-    if _cached_narrative and _cached_year == year:
-        return _cached_narrative
-
-    # Deterministic fallback template if Ollama is unreachable
+    """Instant deterministic recap narrative generated on-device."""
     person_text = f", spending the most time with {stats['most_photos_with_a_person']['label']}" if stats.get("most_photos_with_a_person") else ""
     day_text = f", peaking on {stats['most_photos_taken_in_a_day']['formatted_date']}" if stats.get("most_photos_taken_in_a_day") else ""
     loc_text = f" across {len(top_locations)} places" if top_locations else ""
     pet_text = ", along with your favorite pets" if pets_detected else ""
-    fallback = (
+    return (
         f"You captured {total_photos} memories in {year}"
         f"{person_text}{loc_text}{day_text}{pet_text}."
     )
-
-    # Attempt local Ollama generation
-    people_names = ", ".join(f"{p['label']} ({p['photo_count']} photos)" for p in top_people) if top_people else "None recorded"
-    day_str = f"{stats['most_photos_taken_in_a_day']['formatted_date']} ({stats['most_photos_taken_in_a_day']['count']} photos)" if stats.get('most_photos_taken_in_a_day') else "N/A"
-    month_str = f"{stats['busiest_month']['formatted_month']} ({stats['busiest_month']['count']} photos)" if stats.get('busiest_month') else "N/A"
-
-    prompt = (
-        f"You are writing a short, exciting Spotify-Wrapped-style photo recap for {year}. "
-        "In exactly two friendly, complete sentences, summarize these statistics (no markdown, no bullet points):\n"
-        f"- Total photos: {total_photos}\n"
-        f"- Busiest day: {day_str}\n"
-        f"- Busiest month: {month_str}\n"
-        f"- Top people: {people_names}\n"
-        f"- Pets detected: {'Yes' if pets_detected else 'No'}\n"
-        "Recap:"
-    )
-
-    try:
-        req = urllib.request.Request(
-            OLLAMA_URL,
-            data=json.dumps({
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "keep_alive": -1,
-                "options": {"temperature": 0.3, "num_predict": 75}
-            }).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_S) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            nar = _clean_narrative(data.get("response", ""))
-            if nar and len(nar) > 20:
-                _cached_narrative = nar
-                _cached_year = year
-                return _cached_narrative
-    except Exception as e:
-        print(f"[wrapped] Ollama live generation note: {e}")
-
-    return fallback
 
 
 @router.get("/wrapped")

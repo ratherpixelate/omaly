@@ -26,6 +26,9 @@ def test_search_endpoint():
 
     first = data["results"][0]
     assert "id" in first
+    assert "filename" in first and isinstance(first["filename"], str)
+    assert "url" in first and first["url"].startswith("/files/")
+    assert "burst_group_id" in first
     assert "thumbnail_url" in first
     assert "taken_at" in first
     assert first["taken_at"] is not None
@@ -34,6 +37,43 @@ def test_search_endpoint():
     if first["location"] is not None:
         assert "lat" in first["location"]
         assert "lon" in first["location"]
+
+
+def test_search_by_person_name_and_filename():
+    # 1. Search for person name "Chris" (cluster p1) - should strictly return only Chris photos
+    res_chris = client.get("/search?q=Chris")
+    assert res_chris.status_code == 200
+    chris_results = res_chris.json()["results"]
+    assert len(chris_results) == 11
+    assert all(r.get("matched_person") == "Chris" for r in chris_results)
+    assert all(r["score"] == 1.0 for r in chris_results)
+
+    # 2. Rename cluster p4 to "E2E Test Person" and search for it, restoring afterward
+    from api.common import db
+    orig_label = None
+    with db() as con:
+        r = con.execute("SELECT label FROM face_clusters WHERE cluster_id = 'p4'").fetchone()
+        if r:
+            orig_label = r["label"]
+
+    try:
+        client.post("/people/p4/rename", json={"name": "E2E Test Person"})
+        res_rename = client.get("/search?q=E2E Test Person")
+        assert res_rename.status_code == 200
+        renamed_results = res_rename.json()["results"]
+        assert len(renamed_results) > 0
+        assert "E2E Test Person" in renamed_results[0]["matched_person"]
+        assert renamed_results[0]["score"] == 1.0
+    finally:
+        with db() as con:
+            con.execute("UPDATE face_clusters SET label = ? WHERE cluster_id = 'p4'", (orig_label,))
+            con.commit()
+
+    # 3. Search by filename "0951"
+    res_file = client.get("/search?q=0951")
+    assert res_file.status_code == 200
+    file_results = res_file.json()["results"]
+    assert any("0951" in r["filename"] for r in file_results)
 
 
 def test_best_shot_endpoint():
@@ -103,11 +143,8 @@ def test_wrapped_endpoint_real_data():
         assert "photo_count" in stats["busiest_month"]
 
 
-def test_wrapped_fallback_when_ollama_unavailable(monkeypatch):
-    """Verify that if Ollama is unreachable, /wrapped still succeeds with a clean narrative."""
-    # Force Ollama URL to invalid port
-    monkeypatch.setattr(wrapped, "OLLAMA_URL", "http://127.0.0.1:99999/api/generate")
-
+def test_wrapped_narrative_fast():
+    """Verify that /wrapped returns a clean, deterministic narrative instantly with no Ollama dependency."""
     res = client.get("/wrapped")
     assert res.status_code == 200
     data = res.json()
@@ -128,11 +165,21 @@ def test_thumbnails_endpoint():
     assert len(thumb_res.content) > 0
 
 
+def test_person_thumbnail_endpoint():
+    # p1 exists in people
+    res = client.get("/people/p1/thumbnail.jpg")
+    assert res.status_code == 200
+    assert res.headers.get("content-type") == "image/jpeg"
+    assert len(res.content) > 0
+
+
 if __name__ == "__main__":
     print("Testing /health...")
     test_health_endpoint()
     print("Testing /search...")
     test_search_endpoint()
+    print("Testing /search by person name and filename...")
+    test_search_by_person_name_and_filename()
     print("Testing /best-shot...")
     test_best_shot_endpoint()
     print("Testing /wrapped (real data)...")
@@ -149,14 +196,12 @@ if __name__ == "__main__":
                 setattr(target, name, orig)
             self.undo.clear()
 
-    patch = SimplePatch()
-    try:
-        print("Testing /wrapped (fallback when Ollama unreachable)...")
-        test_wrapped_fallback_when_ollama_unavailable(patch)
-    finally:
-        patch.restore()
+    print("Testing /wrapped (fast deterministic narrative)...")
+    test_wrapped_narrative_fast()
 
     print("Testing /thumbnails...")
     test_thumbnails_endpoint()
+    print("Testing /people/{cluster_id}/thumbnail.jpg...")
+    test_person_thumbnail_endpoint()
 
     print("\nALL BACKEND END-TO-END TESTS PASSED! \u2714")
