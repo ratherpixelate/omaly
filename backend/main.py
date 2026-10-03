@@ -1,18 +1,23 @@
 import os
+from pathlib import Path
+import threading
 import urllib.parse
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from api import search, best_shot, wrapped, thumbnails
+from ingestion import quality
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    search.warmup()
+    # Warm CLIP search, best-shot quality metrics, and Ollama in background threads
+    threading.Thread(target=search.warmup, daemon=True).start()
+    threading.Thread(target=quality.warm, daemon=True).start()
+    threading.Thread(target=wrapped.warmup, daemon=True).start()
     yield
 
 
@@ -21,7 +26,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 # Folder of photos to serve. Override with PHOTOS_DIR=/path/to/dir.
 PHOTOS_DIR = Path(
-    os.environ.get("PHOTOS_DIR", Path.home() / "Downloads" / "photos")
+    os.environ.get(
+        "PHOTOS_DIR",
+        r"C:\Users\HARINANDAN B\OneDrive\Desktop\github\omaly\backend\data\demo_photos",
+    )
 )
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic"}
