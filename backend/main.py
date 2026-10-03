@@ -14,10 +14,10 @@ from ingestion import quality
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    search.warmup()
-    # Load models + cache burst metrics in the background so the first
-    # /best-shot call stays inside the frontend's 10s timeout.
+    # Warm CLIP search, best-shot quality metrics, and Ollama in background threads
+    threading.Thread(target=search.warmup, daemon=True).start()
     threading.Thread(target=quality.warm, daemon=True).start()
+    threading.Thread(target=wrapped.warmup, daemon=True).start()
     yield
 
 

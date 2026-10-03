@@ -62,6 +62,8 @@ def _load():
 @router.get("/search")
 def search(q: str = Query(..., min_length=1), top_k: int = Query(20, ge=1, le=100)):
     if not _ready:
+        warmup()
+    if not _ready:
         raise HTTPException(503, "Search model not loaded (torch/open_clip missing)")
     cache = _load()
     if not cache["ids"]:
@@ -82,7 +84,7 @@ def search(q: str = Query(..., min_length=1), top_k: int = Query(20, ge=1, le=10
         results.append({
             "id": pid,
             "thumbnail_url": f"/thumbnails/{pid}.jpg",
-            "taken_at": r["taken_at"],
+            "taken_at": r["taken_at"] or "1970-01-01T00:00:00",
             "location": {"lat": r["latitude"], "lon": r["longitude"]} if gps else None,
             "score": round(float(scores[i]), 4),
         })

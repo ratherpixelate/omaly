@@ -51,7 +51,8 @@ def best_shot_endpoint(group_id: str = Query(..., min_length=1),
                    f"({results[0]['error']})",
         )
 
-    if top_k is None:  # adaptive: 2 only when runner-up is in the same blink tier and nearly as good
+    effective_top_k = top_k if isinstance(top_k, int) else None
+    if effective_top_k is None:  # adaptive: 2 only when runner-up is in the same blink tier and nearly as good
         n = 1
         if len(scored) > 1:
             winner, runner_up = scored[0], scored[1]
@@ -60,7 +61,7 @@ def best_shot_endpoint(group_id: str = Query(..., min_length=1),
             if same_tier and close_score:
                 n = 2
     else:
-        n = min(top_k, len(scored))
+        n = min(effective_top_k, len(scored))
 
     return {
         "group_id": group_id,
